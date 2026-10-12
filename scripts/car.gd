@@ -23,6 +23,30 @@ const CAR_TYPES := {
 		"wheel_radius": 0.38, "wheel_width": 0.34, "wheel_y": -0.3, "wheel_z": 0.34,
 		"travel": 0.2, "stiffness": 55.0, "grip": 3.0, "com_y": -0.35, "cornering": 6.0,
 	},
+	"sedan": {
+		"label": "Cruiser Sedan", "style": "sedan", "mass": 1450.0, "engine": 4400.0, "top_speed": 27.0,
+		"steer": 0.46, "health": 110.0, "size": Vector3(1.9, 1.45, 4.8),
+		"wheel_radius": 0.36, "wheel_width": 0.28, "wheel_y": -0.5, "wheel_z": 0.31,
+		"travel": 0.25, "stiffness": 42.0, "grip": 2.8, "com_y": -0.55, "cornering": 5.0,
+	},
+	"pickup": {
+		"label": "Ranger Pickup", "style": "pickup", "mass": 1900.0, "engine": 5800.0, "top_speed": 25.0,
+		"steer": 0.45, "health": 140.0, "size": Vector3(2.1, 1.8, 5.2),
+		"wheel_radius": 0.44, "wheel_width": 0.34, "wheel_y": -0.7, "wheel_z": 0.32,
+		"travel": 0.35, "stiffness": 34.0, "grip": 2.9, "com_y": -0.8, "cornering": 4.3,
+	},
+	"muscle": {
+		"label": "Bulldog Muscle", "style": "muscle", "mass": 1600.0, "engine": 6000.0, "top_speed": 31.0,
+		"steer": 0.44, "health": 115.0, "size": Vector3(2.0, 1.25, 4.9),
+		"wheel_radius": 0.38, "wheel_width": 0.34, "wheel_y": -0.42, "wheel_z": 0.32,
+		"travel": 0.22, "stiffness": 48.0, "grip": 2.8, "com_y": -0.45, "cornering": 5.2,
+	},
+	"rally": {
+		"label": "Kestrel Rally", "style": "rally", "mass": 1100.0, "engine": 4100.0, "top_speed": 29.0,
+		"steer": 0.5, "health": 85.0, "size": Vector3(1.8, 1.45, 4.0),
+		"wheel_radius": 0.34, "wheel_width": 0.26, "wheel_y": -0.5, "wheel_z": 0.32,
+		"travel": 0.3, "stiffness": 40.0, "grip": 3.2, "com_y": -0.55, "cornering": 5.5,
+	},
 	"monster": {
 		"label": "Big Foot", "style": "monster", "mass": 2300.0, "engine": 8200.0, "top_speed": 23.0,
 		"steer": 0.45, "health": 160.0, "size": Vector3(2.5, 1.5, 4.6),
@@ -72,6 +96,8 @@ var controls_enabled := false
 var kill_height := -20.0
 var nitro_refill_multiplier := 1.0
 var hop_multiplier := 1.0
+## Map surface grip, e.g. lower on ice. Set before the car is added.
+var grip_multiplier := 1.0
 
 var throttle_input := 0.0
 var steer_input := 0.0
@@ -420,7 +446,7 @@ func _build_wheels() -> void:
 			wheel.suspension_max_force = _base_mass * 40.0
 			wheel.damping_compression = 2.5
 			wheel.damping_relaxation = 3.5
-			wheel.wheel_friction_slip = stats["grip"]
+			wheel.wheel_friction_slip = stats["grip"] * grip_multiplier
 			wheel.wheel_roll_influence = 0.12
 			wheel.add_child(CarVisuals.build_wheel(radius, width, stats["style"]))
 			add_child(wheel)

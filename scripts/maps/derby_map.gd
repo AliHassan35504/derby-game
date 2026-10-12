@@ -22,6 +22,8 @@ var kill_height := 0.0
 var water_height := NAN
 var nitro_refill_multiplier := 1.0
 var hop_multiplier := 1.0
+## Tyre grip on this map's roads, e.g. below 1 on ice.
+var grip_multiplier := 1.0
 var road_width := 4.0
 ## How far below each road its stilts reach.
 var stilt_bottom := -5.0

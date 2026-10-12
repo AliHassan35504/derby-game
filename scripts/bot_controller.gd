@@ -46,7 +46,7 @@ func _physics_process(delta: float) -> void:
 	_retarget_in -= delta
 	if _target == null or not _target.alive or _retarget_in <= 0.0:
 		_target = _pick_target()
-		_retarget_in = randf_range(3.0, 6.0)
+		_retarget_in = randf_range(2.0, 4.0)
 
 	var speed := car.get_forward_speed()
 	if _reverse_time > 0.0:
@@ -79,7 +79,7 @@ func _physics_process(delta: float) -> void:
 	if _target and _hunting:
 		var to_target := _target.global_position - car.global_position
 		var aligned := to_target.normalized().dot(car.get_forward())
-		car.nitro_input = aligned > 0.95 and to_target.length() < 20.0 and _speed_limit > 20.0 and randf() < skill
+		car.nitro_input = aligned > 0.95 and to_target.length() < 20.0 and _speed_limit >= 15.0 and randf() < skill
 		var closing := (_target.linear_velocity - car.linear_velocity).dot(-to_target.normalized())
 		car.brace_input = to_target.length() < 9.0 and closing > 10.0 and skill > 0.7
 
@@ -105,6 +105,10 @@ func _think(speed: float) -> void:
 	_repicked = false
 	var goal := _navigate(pos)
 	var goal_angle := _angle_to(goal)
+
+	if _hunting:
+		_ram(pos, goal, goal_angle, speed)
+		return
 
 	# Safety net: is there road toward the goal? If not, find a heading that
 	# has road, as close to the goal as possible.
@@ -140,12 +144,8 @@ func _think(speed: float) -> void:
 				_start_reverse()
 			return
 
-	# Pure pursuit: the steering angle that puts the car on an arc through
-	# the aim point.
 	var reach := clampf(_flat(goal - pos).length(), 3.0, 15.0) if heading == clampf(goal_angle, -0.9, 0.9) else 8.0
-	var wheelbase: float = car.stats["size"].z * float(car.stats["wheel_z"]) * 2.0
-	var angle := atan(wheelbase * 2.0 * sin(heading) / reach)
-	_steer = clampf(angle / car.max_steer_at(speed), -1.0, 1.0)
+	_steer = _pursuit_steer(heading, reach, speed)
 	if randf() > skill:
 		_steer += randf_range(-0.1, 0.1)
 
@@ -153,15 +153,33 @@ func _think(speed: float) -> void:
 	var limit := 30.0
 	limit = minf(limit, lerpf(28.0, 4.5, clampf(absf(goal_angle) / 0.7, 0.0, 1.0)))
 	limit = minf(limit, [0.0, 0.0, 8.0, 12.0, 18.0, 30.0][depth])
-	if _hunting:
-		# Hit hard, but not so hard we sail off the road with the target:
-		# still able to stop before the visible road ends, and before the
-		# turn we would have had to take anyway.
-		limit = minf(limit, 19.0)
-		limit = minf(limit, _corner_limit + 5.0)
-	if not _hunting:
-		limit = minf(limit, _corner_limit)
+	limit = minf(limit, _corner_limit)
 	_speed_limit = limit
+
+
+## Drive straight at the target. If the road ends just past it (it is on an
+## edge, or beached), come in slower for a firm shove we can stop after;
+## otherwise hit as hard as the corner ahead allows.
+func _ram(pos: Vector3, goal: Vector3, goal_angle: float, speed: float) -> void:
+	var dist := _flat(goal - pos).length()
+	_steer = _pursuit_steer(clampf(goal_angle, -0.9, 0.9), clampf(dist, 3.0, 15.0), speed)
+	var limit := minf(19.0, _corner_limit + 5.0)
+	var depth := _heading_depth(clampf(goal_angle, -0.9, 0.9))
+	var road_beyond: bool = depth >= PROBE_DISTANCES.size() or PROBE_DISTANCES[depth] > dist + 7.0
+	if not road_beyond:
+		limit = minf(limit, 6.5 + 0.7 * maxf(dist - 6.0, 0.0))
+	# Never charge blind at the very edge unless the target is right there.
+	if depth == 0 and dist > 5.0:
+		limit = 0.0
+	_speed_limit = limit
+
+
+## Pure pursuit: the steering input that puts the car on an arc through a
+## point at this angle and distance.
+func _pursuit_steer(heading: float, reach: float, speed: float) -> float:
+	var wheelbase: float = car.stats["size"].z * float(car.stats["wheel_z"]) * 2.0
+	var angle := atan(wheelbase * 2.0 * sin(heading) / reach)
+	return clampf(angle / car.max_steer_at(speed), -1.0, 1.0)
 
 
 ## Picks where to drive this tick: straight at the target when hunting,
@@ -174,7 +192,7 @@ func _navigate(pos: Vector3) -> Vector3:
 	var hunt_aim := Vector3.ZERO
 	if _target:
 		var to_target := _target.global_position - pos
-		if to_target.length() < HUNT_RANGE and absf(to_target.y) < 3.0 and _heading_depth(clampf(_angle_to(_target.global_position), -0.9, 0.9)) >= 3:
+		if to_target.length() < HUNT_RANGE and absf(to_target.y) < 3.0 and _road_reaches(_target.global_position):
 			_hunting = true
 			# Lead the target a little so the bot hits where it is going.
 			hunt_aim = _target.global_position + _target.linear_velocity * 0.3 * skill
@@ -346,6 +364,20 @@ func _heading_depth(heading: float, backward := false) -> int:
 	return depth
 
 
+## Whether there is road under us all the way to a point (but not
+## necessarily beyond it, so a car stuck on an edge still counts).
+func _road_reaches(point: Vector3) -> bool:
+	var angle := _angle_to(point)
+	if absf(angle) > 0.9:
+		return false
+	var dist := _flat(point - car.global_position).length()
+	var needed := 0
+	for d in PROBE_DISTANCES:
+		if d < dist - 2.5:
+			needed += 1
+	return _heading_depth(angle) >= needed
+
+
 func _pick_target() -> DerbyCar:
 	var best: DerbyCar
 	var best_score := INF
@@ -353,8 +385,12 @@ func _pick_target() -> DerbyCar:
 		if other == car or not other.alive:
 			continue
 		var offset: Vector3 = other.global_position - car.global_position
-		# Prefer close rivals on roughly the same level.
+		# Prefer close rivals on roughly the same level, and easy prey: a car
+		# that is stuck, damaged or already teetering on an edge.
 		var score := offset.length() + absf(offset.y) * 2.0 + randf() * 15.0
+		if other.linear_velocity.length() < 2.0:
+			score -= 20.0
+		score -= (1.0 - other.health / other.max_health) * 15.0
 		if score < best_score:
 			best_score = score
 			best = other

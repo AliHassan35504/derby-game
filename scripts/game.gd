@@ -119,6 +119,7 @@ func _spawn_car(car_name: String, color: Color, spawn: Transform3D) -> DerbyCar:
 	car.kill_height = map.kill_height
 	car.nitro_refill_multiplier = map.nitro_refill_multiplier
 	car.hop_multiplier = map.hop_multiplier
+	car.grip_multiplier = map.grip_multiplier
 	add_child(car)
 	car.eliminated.connect(_on_car_eliminated)
 	car.hit.connect(_on_car_hit)
