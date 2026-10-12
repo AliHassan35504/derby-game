@@ -10,7 +10,7 @@ jobs:
   bot-round:
     name: Play a bot-only round
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     env:
       GODOT_VERSION: 4.4.1
     steps:
@@ -30,6 +30,17 @@ jobs:
           timeout 900 ./godot --headless --path . -- --autotest 2>&1 | tee round.log
           grep -q "AUTOTEST PASS" round.log
           if grep -qE "SCRIPT ERROR|Parse Error" round.log; then exit 1; fi
+
+      - name: Bots push a stuck car off
+        run: |
+          timeout 300 ./godot --headless --path . -s tests/push_test.gd 2>&1 | tee push.log
+          grep -q "PUSH TEST PASS" push.log
+
+      - name: Menu and championship flow
+        run: |
+          timeout 600 ./godot --headless --path . -s tests/menu_test.gd 2>&1 | tee menu.log
+          grep -q "MENU TEST PASS" menu.log
+          if grep -qE "SCRIPT ERROR|Parse Error" menu.log; then exit 1; fi
 
   windows-build:
     name: Build Windows .exe
