@@ -31,6 +31,12 @@ jobs:
           grep -q "AUTOTEST PASS" round.log
           if grep -qE "SCRIPT ERROR|Parse Error" round.log; then exit 1; fi
 
+      - name: Check the audio
+        run: |
+          timeout 300 ./godot --headless --path . -s tests/audio_test.gd 2>&1 | tee audio.log
+          grep -q "AUDIO TEST PASS" audio.log
+          if grep -qE "SCRIPT ERROR|Parse Error" audio.log; then exit 1; fi
+
   windows-build:
     name: Build Windows .exe
     runs-on: ubuntu-latest

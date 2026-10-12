@@ -76,6 +76,7 @@ func start_round() -> void:
 
 	map = MAPS[_map_index % MAPS.size()].new()
 	_map_index += 1
+	Sfx.play_music("menu")
 	add_child(map)
 	map.apply_quality(quality)
 
@@ -146,6 +147,7 @@ func _physics_process(delta: float) -> void:
 				_state_time = 0.0
 		State.COUNTDOWN:
 			var left := COUNTDOWN - _state_time
+			Sfx.countdown(left)
 			hud.show_message(str(ceili(left)) if left > 0.0 else "", "Last car standing wins")
 			if left <= 0.0:
 				state = State.FIGHT
@@ -234,6 +236,7 @@ func _on_car_hit(car: DerbyCar, amount: float) -> void:
 
 func _on_car_eliminated(car: DerbyCar, reason: String, by: DerbyCar) -> void:
 	_eliminated_order.append(car)
+	Sfx.elimination(car == player and not autotest)
 	var alive := _alive_cars()
 	hud.set_alive_count(alive.size(), cars.size())
 
@@ -302,6 +305,7 @@ func _end_round(winner: DerbyCar) -> void:
 	if winner:
 		camera.target = winner
 	hud.set_spectating("")
+	Sfx.round_over(winner == player and not autotest)
 
 	var ranking: Array[DerbyCar] = []
 	if winner:

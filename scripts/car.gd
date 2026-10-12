@@ -141,6 +141,7 @@ func _ready() -> void:
 	center_of_mass = Vector3(0, stats["com_y"], 0)
 	_build_body()
 	_build_wheels()
+	add_child(CarAudio.new())
 
 
 ## Direction the car drives in when throttle is positive.
