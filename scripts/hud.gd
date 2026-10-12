@@ -19,6 +19,7 @@ var _feed: VBoxContainer
 var _spectate_label: Label
 var _quality_label: Label
 var _intro: PanelContainer
+var _intro_stage: Label
 var _intro_map: Label
 var _intro_car: Label
 var _intro_rule: Label
@@ -26,6 +27,9 @@ var _intro_count: Label
 var _results: PanelContainer
 var _results_title: Label
 var _results_grid: GridContainer
+var _standings_box: VBoxContainer
+var _standings_grid: GridContainer
+var _results_footer: Label
 
 
 func _ready() -> void:
@@ -85,7 +89,7 @@ func _ready() -> void:
 	root.add_child(_spectate_label)
 
 	var hint := _make_label(14)
-	hint.text = "W/S drive · A/D steer · Shift nitro · E hop · Q brace · Space handbrake · F3 graphics · R restart"
+	hint.text = "W/S drive · A/D steer · Shift nitro · E hop · Q brace · Space handbrake · Esc pause"
 	hint.modulate = Color(1, 1, 1, 0.7)
 	_place(hint, Vector2(0, 1), Rect2(24, -40, 1000, 0))
 	root.add_child(hint)
@@ -110,6 +114,10 @@ func _build_intro(root: Control) -> void:
 	title.add_theme_color_override("font_color", ACCENT)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(title)
+	_intro_stage = _make_label(18)
+	_intro_stage.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_intro_stage.modulate = Color(1, 1, 1, 0.75)
+	box.add_child(_intro_stage)
 	_intro_map = _make_label(64)
 	_intro_map.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(_intro_map)
@@ -130,7 +138,6 @@ func _build_intro(root: Control) -> void:
 
 func _build_results(root: Control) -> void:
 	_results = _make_panel()
-	_place(_results, Vector2(0.5, 0.5), Rect2(-360, -220, 720, 0))
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 10)
 	_results.add_child(box)
@@ -138,18 +145,42 @@ func _build_results(root: Control) -> void:
 	_results_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_results_title.add_theme_color_override("font_color", ACCENT)
 	box.add_child(_results_title)
+	var columns := HBoxContainer.new()
+	columns.add_theme_constant_override("separation", 56)
+	box.add_child(columns)
 	_results_grid = GridContainer.new()
-	_results_grid.columns = 4
-	_results_grid.add_theme_constant_override("h_separation", 36)
+	_results_grid.columns = 5
+	_results_grid.add_theme_constant_override("h_separation", 30)
 	_results_grid.add_theme_constant_override("v_separation", 4)
-	box.add_child(_results_grid)
+	columns.add_child(_results_grid)
+	_standings_box = VBoxContainer.new()
+	var standings_title := _make_label(16)
+	standings_title.text = "CHAMPIONSHIP"
+	standings_title.add_theme_color_override("font_color", ACCENT)
+	_standings_box.add_child(standings_title)
+	_standings_grid = GridContainer.new()
+	_standings_grid.columns = 3
+	_standings_grid.add_theme_constant_override("h_separation", 24)
+	_standings_grid.add_theme_constant_override("v_separation", 4)
+	_standings_box.add_child(_standings_grid)
+	columns.add_child(_standings_box)
+	_results_footer = _make_label(16)
+	_results_footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_results_footer.modulate = Color(1, 1, 1, 0.7)
+	box.add_child(_results_footer)
 	_results.visible = false
-	root.add_child(_results)
+	var holder := CenterContainer.new()
+	holder.set_anchors_preset(Control.PRESET_FULL_RECT)
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holder.add_child(_results)
+	root.add_child(holder)
 
 
-func show_intro(map_name: String, car_label: String, rule: String) -> void:
+func show_intro(map_name: String, car_label: String, rule: String, stage := "") -> void:
 	_results.visible = false
 	_intro.visible = true
+	_intro_stage.text = stage
+	_intro_stage.visible = stage != ""
 	_intro_map.text = map_name
 	_intro_car.text = "Everyone drives: %s" % car_label
 	_intro_rule.text = rule
@@ -165,25 +196,63 @@ func hide_intro() -> void:
 	_status_box.visible = true
 
 
-## rows: Array of [place, name, survived seconds, knock-offs, is_player]
-func show_results(title: String, rows: Array) -> void:
+## rows: Array of [place, name, survived seconds, knock-offs, is_player,
+## points gained]. standings: Array of [place, name, points, is_player], or
+## empty outside a championship.
+func show_results(title: String, rows: Array, standings := [], footer := "") -> void:
 	_results.visible = true
 	_results_title.text = title
-	for child in _results_grid.get_children():
-		child.free()
-	for header in ["#", "Driver", "Survived", "Knock-offs"]:
-		var label := _make_label(16)
-		label.text = header
-		label.modulate = Color(1, 1, 1, 0.6)
-		_results_grid.add_child(label)
+	_results_footer.text = footer
+	_results_grid.visible = true
+	_clear(_results_grid)
+	var with_points := not standings.is_empty()
+	_results_grid.columns = 5 if with_points else 4
+	var headers := ["#", "Driver", "Survived", "Knock-offs"]
+	if with_points:
+		headers.append("Pts")
+	for header in headers:
+		_add_cell(_results_grid, header, 16, false, true)
 	for row in rows:
 		var cells := [str(row[0]), row[1], "%d:%04.1f" % [int(row[2]) / 60, fmod(row[2], 60.0)], str(row[3])]
+		if with_points:
+			cells.append("+%d" % row[5])
 		for cell in cells:
-			var label := _make_label(20)
-			label.text = cell
-			if row[4]:
-				label.add_theme_color_override("font_color", ACCENT)
-			_results_grid.add_child(label)
+			_add_cell(_results_grid, cell, 20, row[4])
+	_fill_standings(standings)
+
+
+## End of a championship: just the final table.
+func show_final(title: String, standings: Array, footer: String) -> void:
+	_results.visible = true
+	_results_title.text = title
+	_results_footer.text = footer
+	_results_grid.visible = false
+	_fill_standings(standings)
+
+
+func _fill_standings(standings: Array) -> void:
+	_standings_box.visible = not standings.is_empty()
+	_clear(_standings_grid)
+	for header in ["#", "Driver", "Points"]:
+		_add_cell(_standings_grid, header, 16, false, true)
+	for row in standings:
+		for cell in [str(row[0]), row[1], str(row[2])]:
+			_add_cell(_standings_grid, cell, 20, row[3])
+
+
+func _add_cell(grid: GridContainer, text: String, font_size: int, highlight: bool, header := false) -> void:
+	var label := _make_label(font_size)
+	label.text = text
+	if header:
+		label.modulate = Color(1, 1, 1, 0.6)
+	if highlight:
+		label.add_theme_color_override("font_color", ACCENT)
+	grid.add_child(label)
+
+
+func _clear(node: Node) -> void:
+	for child in node.get_children():
+		child.free()
 
 
 func hide_results() -> void:

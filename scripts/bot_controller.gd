@@ -80,6 +80,9 @@ func _physics_process(delta: float) -> void:
 		var to_target := _target.global_position - car.global_position
 		var aligned := to_target.normalized().dot(car.get_forward())
 		car.nitro_input = aligned > 0.95 and to_target.length() < 20.0 and _speed_limit >= 15.0 and randf() < skill
+		# Save nitro for side and rear hits, not head-ons that send both off.
+		var facing_us := _target.get_forward().dot(-to_target.normalized()) > 0.3
+		car.nitro_input = car.nitro_input and not facing_us
 		var closing := (_target.linear_velocity - car.linear_velocity).dot(-to_target.normalized())
 		car.brace_input = to_target.length() < 9.0 and closing > 10.0 and skill > 0.7
 
@@ -163,14 +166,17 @@ func _think(speed: float) -> void:
 func _ram(pos: Vector3, goal: Vector3, goal_angle: float, speed: float) -> void:
 	var dist := _flat(goal - pos).length()
 	_steer = _pursuit_steer(clampf(goal_angle, -0.9, 0.9), clampf(dist, 3.0, 15.0), speed)
-	var limit := minf(19.0, _corner_limit + 5.0)
+	var limit := minf(lerpf(13.0, 18.0, skill), _corner_limit + 5.0)
 	var depth := _heading_depth(clampf(goal_angle, -0.9, 0.9))
 	var road_beyond: bool = depth >= PROBE_DISTANCES.size() or PROBE_DISTANCES[depth] > dist + 7.0
 	if not road_beyond:
 		limit = minf(limit, 6.5 + 0.7 * maxf(dist - 6.0, 0.0))
-	# Never charge blind at the very edge unless the target is right there.
-	if depth == 0 and dist > 5.0:
+	# Never charge at the very edge unless the target is right there and
+	# still on the road; once it goes over, stop rather than follow it.
+	if depth == 0 and (dist > 5.0 or not _target.is_on_ground()):
 		limit = 0.0
+	elif depth <= 1 and not road_beyond:
+		limit = minf(limit, 4.0)
 	_speed_limit = limit
 
 
@@ -192,7 +198,7 @@ func _navigate(pos: Vector3) -> Vector3:
 	var hunt_aim := Vector3.ZERO
 	if _target:
 		var to_target := _target.global_position - pos
-		if to_target.length() < HUNT_RANGE and absf(to_target.y) < 3.0 and _road_reaches(_target.global_position):
+		if to_target.length() < HUNT_RANGE and absf(to_target.y) < 3.0 and _target.is_on_ground() and _road_reaches(_target.global_position):
 			_hunting = true
 			# Lead the target a little so the bot hits where it is going.
 			hunt_aim = _target.global_position + _target.linear_velocity * 0.3 * skill
@@ -388,7 +394,8 @@ func _pick_target() -> DerbyCar:
 		# Prefer close rivals on roughly the same level, and easy prey: a car
 		# that is stuck, damaged or already teetering on an edge.
 		var score := offset.length() + absf(offset.y) * 2.0 + randf() * 15.0
-		if other.linear_velocity.length() < 2.0:
+		# (Everyone is still at the start of a round.)
+		if other.linear_velocity.length() < 2.0 and car.survived > 6.0:
 			score -= 20.0
 		score -= (1.0 - other.health / other.max_health) * 15.0
 		if score < best_score:
