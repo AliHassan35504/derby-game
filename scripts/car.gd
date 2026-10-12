@@ -296,6 +296,7 @@ func _check_impact_damage() -> void:
 		amount *= FRONT_ARMOR
 	if brace_input:
 		amount *= 0.7
+	CarVisuals.apply_impact(self, dv_vec)
 	# No single crash takes more than 40% health, so head-on hits hurt
 	# without ending the round on the first second.
 	take_damage(minf(amount, max_health * 0.4))
