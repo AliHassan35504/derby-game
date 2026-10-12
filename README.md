@@ -8,6 +8,13 @@ Built with [Godot 4.4](https://godotengine.org) (free, MIT licence).
 
 ## Play it
 
+Download `DerbyGame-windows.zip` from the latest
+[release](https://github.com/AliHassan35504/derby-game/releases), unzip it and
+double-click `DerbyGame.exe`. Windows may warn that the app is unrecognised
+because it isn't code-signed yet: click **More info → Run anyway**.
+
+## Open it in the editor
+
 1. Install Godot 4.4 or newer (the standard version, not .NET).
 2. Open Godot, click **Import**, and pick `project.godot` in this folder.
 3. Press **F5** (or the ▶ button in the top right) to play.
@@ -44,6 +51,17 @@ Built with [Godot 4.4](https://godotengine.org) (free, MIT licence).
 | `scripts/chase_camera.gd` | Third-person follow camera |
 | `scripts/hud.gd` | Health, cars left, countdown and kill feed |
 | `tests/calibrate.gd` | Prints top speed and turning for each car type |
+
+## Building the .exe
+
+Every push to `main` builds `DerbyGame.exe` in CI (download it from the run's
+artifacts). Pushing a `v*` tag that has a GitHub release attaches the zip to
+that release. To build locally, install Godot's export templates
+(Editor → Manage Export Templates) and run:
+
+```
+godot --headless --path . --export-release "Windows" build/windows/DerbyGame.exe
+```
 
 ## Testing without a screen
 

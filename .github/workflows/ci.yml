@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
 
 jobs:
@@ -29,3 +30,45 @@ jobs:
           ./godot --headless --path . -- --autotest 2>&1 | tee round.log
           grep -q "AUTOTEST PASS" round.log
           if grep -qE "SCRIPT ERROR|Parse Error" round.log; then exit 1; fi
+
+  windows-build:
+    name: Build Windows .exe
+    runs-on: ubuntu-latest
+    needs: bot-round
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      GODOT_VERSION: 4.4.1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Godot and the Windows export template
+        run: |
+          curl -sSL -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q godot.zip
+          mv "Godot_v${GODOT_VERSION}-stable_linux.x86_64" godot
+          curl -sSL -o templates.tpz "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          dest="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$dest"
+          unzip -q -j templates.tpz templates/windows_release_x86_64.exe templates/version.txt -d "$dest"
+          rm templates.tpz
+
+      - name: Export
+        run: |
+          ./godot --headless --path . --import
+          mkdir -p build/windows
+          ./godot --headless --path . --export-release "Windows" build/windows/DerbyGame.exe
+          test -s build/windows/DerbyGame.exe
+          cd build/windows && zip -9 ../DerbyGame-windows.zip DerbyGame.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DerbyGame-windows
+          path: build/windows/DerbyGame.exe
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${GITHUB_REF_NAME}" build/DerbyGame-windows.zip --clobber
