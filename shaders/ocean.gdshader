@@ -9,6 +9,7 @@ uniform vec3 shallow_color : source_color = vec3(0.08, 0.32, 0.4);
 uniform vec3 foam_color : source_color = vec3(0.9, 0.95, 1.0);
 uniform float wave_height = 0.9;
 uniform float wave_speed = 1.0;
+uniform float foam_amount = 1.0;
 
 varying float crest;
 varying vec3 world_pos;
@@ -53,6 +54,7 @@ void fragment() {
 	vec3 col = mix(deep_color, shallow_color, clamp(crest * 0.5 + 0.5, 0.0, 1.0) * 0.6);
 	float ripples = noise(world_pos.xz * 0.8 + TIME * 0.3) * noise(world_pos.xz * 2.3 - TIME * 0.2);
 	float foam = smoothstep(0.75, 1.05, crest + ripples * 0.4);
+	foam *= foam_amount;
 	col = mix(col, foam_color, foam * 0.7);
 	ALBEDO = col;
 	ROUGHNESS = mix(0.04, 0.6, foam);

@@ -12,6 +12,10 @@ const MAPS := [
 	preload("res://scripts/maps/boardwalk.gd"),
 	preload("res://scripts/maps/sky_maze.gd"),
 	preload("res://scripts/maps/mountain_spiral.gd"),
+	preload("res://scripts/maps/harbour_cranes.gd"),
+	preload("res://scripts/maps/canyon_bridges.gd"),
+	preload("res://scripts/maps/neon_overpass.gd"),
+	preload("res://scripts/maps/frozen_peaks.gd"),
 ]
 const INTRO_TIME := 5.0
 const COUNTDOWN := 3.0

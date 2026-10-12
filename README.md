@@ -54,6 +54,10 @@ because it isn't code-signed yet: click **More info → Run anyway**.
 | Boardwalk | Hot Rod Van | Wooden stilt roads over the sea, a spiked hub in the middle |
 | Sky Maze | Stinger GT | A grid of pale ramps above the clouds at different heights; nitro refills twice as fast |
 | Mountain Spiral | Big Foot monster truck | An asphalt helix climbing a rock pillar to a summit pad; hops go higher |
+| Harbour Cranes | Ranger Pickup | Sunset port: grated steel walkways between container stacks and two gantry crane booms, with a low walkway passing under both; fall in the sea and you're out |
+| Canyon Bridges | Bulldog Muscle | Midday desert canyon: rope spans and timber trestles between sandstone mesas, in a figure eight that crosses over itself; nitro refills 50% faster |
+| Neon Overpass | Cruiser Sedan | Night city: a stacked highway interchange between skyscrapers and neon signs, crossing over and under itself five times; wet roads, 15% less grip |
+| Frozen Peaks | Kestrel Rally | Dawn in the mountains: ice roads on rock arches in a six-pointed star round a high summit, falling snow, a frozen lake below; a third less grip |
 
 ## Project layout
 
@@ -66,8 +70,9 @@ because it isn't code-signed yet: click **More info → Run anyway**.
 | `scripts/player_controller.gd` | Keyboard / gamepad driving |
 | `scripts/bot_controller.gd` | Bot AI: follow the roads, pick a target, ram it, stay on the road |
 | `scripts/maps/derby_map.gd` | Map building blocks: pads, roads, stilts, collapse, sky and lighting |
-| `scripts/maps/*.gd` | The three maps |
-| `shaders/` | Wood planks, asphalt, ocean and cloud shaders |
+| `scripts/maps/*.gd` | The seven maps |
+| `scripts/maps/mesh_kit.gd` | Merges boxes, beams, tubes and rock shells into single meshes for map scenery |
+| `shaders/` | Road decks (planks, asphalt, wet asphalt, steel grating, ice), rock (sandstone, snowy granite), concrete, steel, containers, city windows and streets, sky, ocean and clouds |
 | `scripts/chase_camera.gd` | Third-person follow camera |
 | `scripts/hud.gd` | Health, nitro, timer, kill feed, Next Derby screen and scoreboard |
 | `tests/calibrate.gd` | Prints top speed and turning for each car type |
