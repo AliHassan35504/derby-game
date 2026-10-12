@@ -10,3 +10,7 @@ func _physics_process(_delta: float) -> void:
 	# Steering right is negative on the car.
 	car.steer_input = Input.get_axis("steer_right", "steer_left")
 	car.handbrake_input = Input.is_action_pressed("handbrake")
+	car.nitro_input = Input.is_action_pressed("nitro")
+	car.brace_input = Input.is_action_pressed("brace")
+	if Input.is_action_just_pressed("hop"):
+		car.hop_input = true

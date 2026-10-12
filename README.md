@@ -1,8 +1,11 @@
 # Derby Game
 
-A last-car-standing demolition derby. Every player gets a car on a floating
-arena with no walls. Smash the other cars until they blow up or get knocked off
-the edge. The last car still driving wins the round.
+A last-car-standing demolition derby on narrow roads floating in the sky.
+The roads are one car wide with no rails. Ram the other cars off the edge or
+smash them until they blow up. The last car still driving wins the round.
+
+Every map hands the same car to everyone, so a round is about driving, not
+about who got the better car.
 
 Built with [Godot 4.4](https://godotengine.org) (free, MIT licence).
 
@@ -26,17 +29,31 @@ because it isn't code-signed yet: click **More info → Run anyway**.
 | Accelerate | W / ↑ | Right trigger |
 | Reverse / brake | S / ↓ | Left trigger |
 | Steer | A D / ← → | Left stick |
-| Handbrake | Space | A |
+| Nitro | Shift | Right bumper |
+| Hop (jump a gap or dodge a hit) | E | A |
+| Brace (heavier, slower, takes less damage) | Q | Left bumper |
+| Handbrake | Space | B |
+| Spectate next / previous car (after you're out) | → / ← | D-pad |
+| Graphics quality (Low / Medium / High) | F3 | |
 | Restart round | R | Start |
 
 ## How a round works
 
-- You drive the blue **Sedan**. Five bots get a random **Compact**, **Sedan** or **Truck**.
-- After a 3-second countdown everyone can drive.
-- Hard impacts with other cars cost health. Hits on your front bumper hurt less, so ram rather than get rammed.
-- A car at 0 HP explodes; a car that falls off the platform is out too.
-- After 75 seconds it's **sudden death**: every car slowly loses health until one is left.
-- The next round starts automatically, or press R.
+- A **Next Derby** screen shows the map, the car everyone gets and the map's twist.
+- After a countdown, six cars fight for up to 2:30.
+- Hard impacts cost health; hits on your front bumper hurt less, so ram rather than get rammed.
+- A car at 0 HP explodes. A car that falls off, or sits on its roof for 3 seconds, is out too.
+- In the last minute the map starts **collapsing** from the outside in, piece by piece.
+- Knocking a car out gives you the credit in the kill feed. Once you're out you can spectate.
+- The scoreboard ranks drivers by how long they survived. The next map loads automatically.
+
+## Maps
+
+| Map | Car | Twist |
+|---|---|---|
+| Boardwalk | Hot Rod Van | Wooden stilt roads over the sea, a spiked hub in the middle |
+| Sky Maze | Stinger GT | A grid of pale ramps above the clouds at different heights; nitro refills twice as fast |
+| Mountain Spiral | Big Foot monster truck | An asphalt helix climbing a rock pillar to a summit pad; hops go higher |
 
 ## Project layout
 
@@ -44,12 +61,15 @@ because it isn't code-signed yet: click **More info → Run anyway**.
 |---|---|
 | `scenes/main.tscn` | Entry scene; everything else is built from code |
 | `scripts/game.gd` | Round flow: spawning, countdown, eliminations, winner |
-| `scripts/car.gd` | The car: types and stats, driving, damage, explosions |
+| `scripts/car.gd` | The car: types and stats, driving, nitro, hop, damage, explosions |
+| `scripts/car_visuals.gd` | Builds the van, sports car and monster truck bodies and wheels |
 | `scripts/player_controller.gd` | Keyboard / gamepad driving |
-| `scripts/bot_controller.gd` | Bot AI: pick a target, ram it, stay away from the edge |
-| `scripts/arena.gd` | The floating platform map, ramps, crates, sky and lighting |
+| `scripts/bot_controller.gd` | Bot AI: follow the roads, pick a target, ram it, stay on the road |
+| `scripts/maps/derby_map.gd` | Map building blocks: pads, roads, stilts, collapse, sky and lighting |
+| `scripts/maps/*.gd` | The three maps |
+| `shaders/` | Wood planks, asphalt, ocean and cloud shaders |
 | `scripts/chase_camera.gd` | Third-person follow camera |
-| `scripts/hud.gd` | Health, cars left, countdown and kill feed |
+| `scripts/hud.gd` | Health, nitro, timer, kill feed, Next Derby screen and scoreboard |
 | `tests/calibrate.gd` | Prints top speed and turning for each car type |
 
 ## Building the .exe
@@ -69,5 +89,5 @@ godot --headless --path . --export-release "Windows" build/windows/DerbyGame.exe
 godot --headless --path . -- --autotest
 ```
 
-That swaps you for a bot, plays one round at 4× speed and prints who was
-eliminated and who won. CI runs it on every pull request.
+That swaps you for a bot, plays one round on each map at 4× speed and prints
+who was eliminated and who won. CI runs it on every pull request.

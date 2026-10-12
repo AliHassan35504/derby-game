@@ -27,7 +27,7 @@ jobs:
 
       - name: Play one round with bots only
         run: |
-          ./godot --headless --path . -- --autotest 2>&1 | tee round.log
+          timeout 900 ./godot --headless --path . -- --autotest 2>&1 | tee round.log
           grep -q "AUTOTEST PASS" round.log
           if grep -qE "SCRIPT ERROR|Parse Error" round.log; then exit 1; fi
 

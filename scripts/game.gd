@@ -1,37 +1,47 @@
 extends Node3D
-## Runs derby rounds: spawns the arena, the player and the bots, counts down,
-## watches for eliminations and declares the last car standing the winner.
+## Runs the derby: rotates through the maps, shows the Next Derby screen,
+## spawns everyone in that map's car, counts down, collapses the map late in
+## the round, tracks knock-offs and shows the results.
 ##
 ## Run with `-- --autotest` to replace the player with a bot, play one round
-## and quit, printing the result. CI uses this as a smoke test.
+## on every map at 4x speed and quit, printing the results. CI uses this.
 
-const BOT_COUNT := 5
-const COUNTDOWN := 3.0
-## After this long a round goes to sudden death and every car loses health.
-const SUDDEN_DEATH_AFTER := 75.0
-const SUDDEN_DEATH_DPS := 4.0
-const RESTART_DELAY := 6.0
-const AUTOTEST_TIMEOUT := 240.0
-
-const BOT_NAMES := ["Crusher", "Rustbucket", "Mad Max", "Bumper", "Wrecker", "Tank", "Dent", "Scrapper"]
-const BOT_COLORS := [
-	Color(0.2, 0.75, 0.3), Color(0.7, 0.3, 0.85), Color(0.95, 0.5, 0.15),
-	Color(0.15, 0.75, 0.8), Color(0.9, 0.9, 0.9), Color(0.95, 0.35, 0.55),
+const MAPS := [
+	preload("res://scripts/maps/boardwalk.gd"),
+	preload("res://scripts/maps/sky_maze.gd"),
+	preload("res://scripts/maps/mountain_spiral.gd"),
 ]
+const CAR_COUNT := 6
+const INTRO_TIME := 5.0
+const COUNTDOWN := 3.0
+const ROUND_LENGTH := 150.0
+## The map starts falling apart when this much time is left.
+const COLLAPSE_AT := 60.0
+const RESULTS_TIME := 7.0
+const QUALITY_NAMES := ["Low", "Medium", "High"]
 
-enum State { COUNTDOWN, FIGHT, OVER }
+const BOT_NAMES := ["Crusher", "Rustbucket", "Mad Max", "Bumper", "Wrecker", "Tank", "Dent", "Scrapper", "Smasher", "Nitro Ned"]
 
-var arena: DerbyArena
+enum State { INTRO, COUNTDOWN, FIGHT, RESULTS }
+
+var map: DerbyMap
 var camera: ChaseCamera
 var hud: DerbyHud
 var cars: Array[DerbyCar] = []
 var player: DerbyCar
-var state := State.COUNTDOWN
+var state := State.INTRO
 var round_time := 0.0
 var autotest := false
+var quality := 2
 
+var _map_index := 0
 var _state_time := 0.0
-var _sudden_death := false
+var _collapse_timer := 0.0
+var _collapse_interval := 1.0
+var _eliminated_order: Array[DerbyCar] = []
+var _spectate_index := 0
+var _rounds_played := 0
+var _message_until := 0.0
 
 
 func _ready() -> void:
@@ -41,151 +51,304 @@ func _ready() -> void:
 		Engine.physics_ticks_per_second = 240
 		Engine.max_physics_steps_per_frame = 32
 	_setup_input()
-	arena = DerbyArena.new()
-	add_child(arena)
 	camera = ChaseCamera.new()
-	camera.fov = 70.0
+	camera.fov = 72.0
+	camera.far = 3000.0
 	add_child(camera)
 	hud = DerbyHud.new()
 	add_child(hud)
+	hud.set_quality(QUALITY_NAMES[quality])
 	start_round()
 
 
 func start_round() -> void:
+	Engine.time_scale = 4.0 if autotest else 1.0
 	for car in cars:
 		car.queue_free()
 	cars.clear()
+	_eliminated_order.clear()
+	if map:
+		map.queue_free()
 	hud.clear_feed()
+	hud.hide_results()
+	hud.show_message("")
+	hud.set_spectating("")
 
-	var spawns := arena.get_spawn_points(BOT_COUNT + 1)
-	var types := DerbyCar.CAR_TYPES.keys()
+	map = MAPS[_map_index % MAPS.size()].new()
+	_map_index += 1
+	add_child(map)
+	map.apply_quality(quality)
+
+	var spawns := map.get_spawn_points(CAR_COUNT)
 	var names := BOT_NAMES.duplicate()
 	names.shuffle()
+	var colors := DerbyCar.BODY_COLORS.duplicate()
+	colors.shuffle()
 
-	player = _spawn_car("sedan", "You", Color.WHITE, spawns[0])
+	player = _spawn_car("You", colors[0], spawns[0])
 	if autotest:
 		_attach_bot(player)
 	else:
-		var controller := PlayerController.new()
-		player.add_child(controller)
-
-	for i in BOT_COUNT:
-		var car := _spawn_car(types.pick_random(), names[i], BOT_COLORS[i % BOT_COLORS.size()], spawns[i + 1])
-		_attach_bot(car)
-
+		player.add_child(PlayerController.new())
+	for i in range(1, CAR_COUNT):
+		_attach_bot(_spawn_car(names[i - 1], colors[i % colors.size()], spawns[i]))
 	for car in cars:
 		for child in car.get_children():
 			if child is BotController:
 				child.rivals = cars
 
 	camera.target = player
-	camera.snap_to_target()
-	hud.set_player(player)
+	camera.orbit_center = Vector3(0, 30, 0)
+	camera.orbiting = true
+	hud.set_map(map.map_name)
+	hud.show_intro(map.map_name, DerbyCar.CAR_TYPES[map.car_type]["label"], map.rule_text)
 	hud.set_alive_count(cars.size(), cars.size())
-	state = State.COUNTDOWN
+	hud.set_timer(ROUND_LENGTH, false)
+	state = State.INTRO
 	_state_time = 0.0
 	round_time = 0.0
-	_sudden_death = false
+	_collapse_timer = 0.0
 
 
-func _spawn_car(type: String, car_name: String, color: Color, spawn: Transform3D) -> DerbyCar:
+func _spawn_car(car_name: String, color: Color, spawn: Transform3D) -> DerbyCar:
 	var car := DerbyCar.new()
-	car.car_type = type
+	car.car_type = map.car_type
 	car.display_name = car_name
 	car.body_color = color
 	car.transform = spawn
+	car.kill_height = map.kill_height
+	car.nitro_refill_multiplier = map.nitro_refill_multiplier
+	car.hop_multiplier = map.hop_multiplier
 	add_child(car)
 	car.eliminated.connect(_on_car_eliminated)
-	car.health_changed.connect(_on_car_health_changed)
+	car.hit.connect(_on_car_hit)
 	cars.append(car)
 	return car
 
 
 func _attach_bot(car: DerbyCar) -> void:
 	var bot := BotController.new()
-	bot.arena_radius = arena.radius
 	bot.skill = randf_range(0.55, 0.95)
+	bot.map = map
 	car.add_child(bot)
 
 
 func _physics_process(delta: float) -> void:
 	_state_time += delta
 	match state:
+		State.INTRO:
+			hud.set_intro_countdown(INTRO_TIME - _state_time)
+			if _state_time >= INTRO_TIME or autotest:
+				hud.hide_intro()
+				camera.snap_to_target()
+				state = State.COUNTDOWN
+				_state_time = 0.0
 		State.COUNTDOWN:
 			var left := COUNTDOWN - _state_time
 			hud.show_message(str(ceili(left)) if left > 0.0 else "", "Last car standing wins")
 			if left <= 0.0:
 				state = State.FIGHT
 				_state_time = 0.0
-				hud.show_message("SMASH!")
+				_flash_message("GO!", "", 1.2)
 				for car in cars:
 					car.controls_enabled = true
 		State.FIGHT:
-			round_time += delta
-			if _state_time > 1.0 and not _sudden_death:
-				hud.show_message("")
-			if round_time > SUDDEN_DEATH_AFTER:
-				if not _sudden_death:
-					_sudden_death = true
-					hud.show_message("SUDDEN DEATH", "Every car is losing health")
-				elif round_time > SUDDEN_DEATH_AFTER + 2.0:
-					hud.show_message("")
-				for car in cars:
-					car.take_damage(SUDDEN_DEATH_DPS * delta)
-			if autotest and round_time > AUTOTEST_TIMEOUT:
-				print("AUTOTEST FAIL: round did not finish in %ds" % AUTOTEST_TIMEOUT)
-				get_tree().quit(1)
-		State.OVER:
-			if autotest:
-				return
-			if _state_time > RESTART_DELAY:
+			_fight_step(delta)
+		State.RESULTS:
+			if not autotest and _state_time > RESULTS_TIME:
 				start_round()
+	if player and is_instance_valid(player):
+		hud.update_player(player)
+
+
+func _fight_step(delta: float) -> void:
+	round_time += delta
+	var remaining := ROUND_LENGTH - round_time
+	hud.set_timer(remaining, remaining <= COLLAPSE_AT)
+	if _message_until > 0.0 and round_time > _message_until:
+		_message_until = 0.0
+		hud.show_message("")
+
+	if remaining <= COLLAPSE_AT:
+		if _collapse_timer == 0.0:
+			# Spread the collapse so the last piece goes as the clock hits 0.
+			_collapse_interval = COLLAPSE_AT / float(maxi(map.pieces_left(), 1))
+			_collapse_timer = 0.0001
+			_flash_message("COLLAPSE!", "The roads are falling away", 2.5)
+			hud.add_feed("The map is collapsing!", true)
+		_collapse_timer += delta
+		if _collapse_timer >= _collapse_interval or (remaining <= 0.0 and map.pieces_left() > 0):
+			_collapse_timer = 0.0001
+			map.collapse_next()
+
+	if remaining < -20.0:
+		# Everyone is somehow still up after the map fell: call it.
+		var alive := _alive_cars()
+		alive.sort_custom(func(a: DerbyCar, b: DerbyCar) -> bool: return a.health > b.health)
+		_end_round(alive[0] if alive.size() > 0 else null)
+
+
+func _flash_message(text: String, sub: String, seconds: float) -> void:
+	hud.show_message(text, sub)
+	_message_until = round_time + seconds
+
+
+func _alive_cars() -> Array[DerbyCar]:
+	var alive: Array[DerbyCar] = []
+	for car in cars:
+		if car.alive:
+			alive.append(car)
+	return alive
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("restart"):
+		_map_index = maxi(_map_index - 1, 0)
 		start_round()
+	elif event.is_action_pressed("graphics"):
+		quality = (quality + 1) % QUALITY_NAMES.size()
+		map.apply_quality(quality)
+		hud.set_quality(QUALITY_NAMES[quality])
+	elif player and not player.alive and state == State.FIGHT:
+		if event.is_action_pressed("spectate_next"):
+			_spectate(1)
+		elif event.is_action_pressed("spectate_prev"):
+			_spectate(-1)
 
 
-func _on_car_health_changed(car: DerbyCar, _health: float) -> void:
-	if car == player:
-		hud.update_health(car)
+func _spectate(step: int) -> void:
+	var alive := _alive_cars()
+	if alive.is_empty():
+		hud.set_spectating("")
+		return
+	_spectate_index = posmod(_spectate_index + step, alive.size())
+	camera.target = alive[_spectate_index]
+	hud.set_spectating(camera.target.display_name)
 
 
-func _on_car_eliminated(car: DerbyCar, reason: String) -> void:
-	var alive := cars.filter(func(c: DerbyCar) -> bool: return c.alive)
+func _on_car_hit(car: DerbyCar, amount: float) -> void:
+	if car == camera.target:
+		camera.add_trauma(clampf(amount / 50.0, 0.1, 0.8))
+
+
+func _on_car_eliminated(car: DerbyCar, reason: String, by: DerbyCar) -> void:
+	_eliminated_order.append(car)
+	var alive := _alive_cars()
 	hud.set_alive_count(alive.size(), cars.size())
-	hud.add_feed("%s %s" % [car.display_name, reason])
+
+	var text := ""
+	if reason == "fell off" and map.is_over_water():
+		_splash(Vector3(car.global_position.x, map.water_height, car.global_position.z))
+		text = "%s knocked %s into the sea" % [by.display_name, car.display_name] if by else "%s went for a swim" % car.display_name
+	elif reason == "fell off":
+		text = "%s knocked %s off" % [by.display_name, car.display_name] if by else "%s fell off" % car.display_name
+	elif reason == "flipped":
+		text = "%s flipped and blew up" % car.display_name
+	else:
+		text = "%s wrecked %s" % [by.display_name, car.display_name] if by else "%s was wrecked" % car.display_name
+	hud.add_feed(text, car == player or by == player)
 	if autotest:
-		print("[%5.1fs] %s (%s) %s" % [round_time, car.display_name, car.car_type, reason])
-	if car == player:
-		hud.update_health(car)
-		if alive.size() > 0:
-			camera.target = alive[0]
-	elif camera.target == car and alive.size() > 0:
+		print("  [%5.1fs] %s" % [round_time, text])
+
+	if car == player and not autotest:
+		_flash_message("YOU'RE OUT", "Placed #%d" % (alive.size() + 1), 3.0)
+	if car == camera.target and alive.size() > 0:
+		_spectate_index = 0
 		camera.target = alive[0]
+		if not player.alive:
+			hud.set_spectating(alive[0].display_name)
 
 	if state == State.FIGHT and alive.size() <= 1:
-		_end_round(alive[0] if alive.size() == 1 else null)
+		_end_round(alive[0] if alive.size() == 1 else car)
+
+
+func _splash(at: Vector3) -> void:
+	var splash := GPUParticles3D.new()
+	splash.amount = 60
+	splash.lifetime = 1.4
+	splash.one_shot = true
+	splash.explosiveness = 0.95
+	var proc := ParticleProcessMaterial.new()
+	proc.direction = Vector3.UP
+	proc.spread = 35.0
+	proc.initial_velocity_min = 6.0
+	proc.initial_velocity_max = 14.0
+	proc.gravity = Vector3(0, -12, 0)
+	proc.scale_min = 0.5
+	proc.scale_max = 1.6
+	splash.process_material = proc
+	var drop := SphereMesh.new()
+	drop.radius = 0.35
+	drop.height = 0.7
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.9, 0.96, 1.0, 0.8)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.roughness = 0.1
+	drop.material = mat
+	splash.draw_pass_1 = drop
+	map.add_child(splash)
+	splash.global_position = at
+	splash.emitting = true
 
 
 func _end_round(winner: DerbyCar) -> void:
-	state = State.OVER
+	if state == State.RESULTS:
+		return
+	state = State.RESULTS
 	_state_time = 0.0
 	for car in cars:
 		car.controls_enabled = false
 	if winner:
 		camera.target = winner
+	hud.set_spectating("")
+
+	var ranking: Array[DerbyCar] = []
+	if winner:
+		ranking.append(winner)
+	for car in _alive_cars():
+		if not ranking.has(car):
+			ranking.append(car)
+	var order := _eliminated_order.duplicate()
+	order.reverse()
+	for car in order:
+		if not ranking.has(car):
+			ranking.append(car)
+	var rows := []
+	for i in ranking.size():
+		var car := ranking[i]
+		rows.append([i + 1, car.display_name, car.survived, car.knockoffs, car == player and not autotest])
+
 	var title := "DRAW"
 	if winner == player and not autotest:
 		title = "YOU WIN!"
 	elif winner:
 		title = "%s WINS" % winner.display_name.to_upper()
-	hud.show_message(title, "Next round in %d seconds · R to restart now" % RESTART_DELAY)
+	_message_until = 0.0
+	hud.show_message("")
+	hud.show_results("%s · %s" % [title, map.map_name], rows)
+
 	if autotest:
-		var who := "nobody" if winner == null else "%s (%s)" % [winner.display_name, winner.car_type]
-		print("AUTOTEST PASS: winner %s after %.1fs" % [who, round_time])
+		_finish_autotest_round(winner, ranking)
+		return
+	# A moment of slow motion on the final knock-off.
+	Engine.time_scale = 0.3
+	get_tree().create_timer(1.5, true, false, true).timeout.connect(func() -> void: Engine.time_scale = 1.0)
+
+
+func _finish_autotest_round(winner: DerbyCar, ranking: Array[DerbyCar]) -> void:
+	_rounds_played += 1
+	var knocks := ranking.map(func(c: DerbyCar) -> String: return "%s %d" % [c.display_name, c.knockoffs])
+	print("%s: winner %s after %.1fs; knock-offs: %s" % [
+		map.map_name, "nobody" if winner == null else winner.display_name, round_time, ", ".join(knocks)])
+	if round_time > ROUND_LENGTH + 25.0:
+		print("AUTOTEST FAIL: %s ran past the round length" % map.map_name)
+		get_tree().quit(1)
+		return
+	if _rounds_played >= MAPS.size():
+		print("AUTOTEST PASS: %d rounds" % _rounds_played)
 		get_tree().quit(0)
+		return
+	start_round()
 
 
 func _setup_input() -> void:
@@ -193,8 +356,14 @@ func _setup_input() -> void:
 	_add_action("reverse", [KEY_S, KEY_DOWN], JOY_AXIS_TRIGGER_LEFT, 1.0)
 	_add_action("steer_left", [KEY_A, KEY_LEFT], JOY_AXIS_LEFT_X, -1.0)
 	_add_action("steer_right", [KEY_D, KEY_RIGHT], JOY_AXIS_LEFT_X, 1.0)
-	_add_action("handbrake", [KEY_SPACE], -1, 0.0, JOY_BUTTON_A)
+	_add_action("handbrake", [KEY_SPACE], -1, 0.0, JOY_BUTTON_B)
+	_add_action("nitro", [KEY_SHIFT], -1, 0.0, JOY_BUTTON_RIGHT_SHOULDER)
+	_add_action("hop", [KEY_E], -1, 0.0, JOY_BUTTON_A)
+	_add_action("brace", [KEY_Q], -1, 0.0, JOY_BUTTON_LEFT_SHOULDER)
 	_add_action("restart", [KEY_R], -1, 0.0, JOY_BUTTON_START)
+	_add_action("graphics", [KEY_F3], -1, 0.0)
+	_add_action("spectate_next", [KEY_RIGHT, KEY_D], -1, 0.0, JOY_BUTTON_DPAD_RIGHT)
+	_add_action("spectate_prev", [KEY_LEFT, KEY_A], -1, 0.0, JOY_BUTTON_DPAD_LEFT)
 
 
 func _add_action(action: String, keys: Array, axis: int, axis_dir: float, button := -1) -> void:

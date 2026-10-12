@@ -1,15 +1,31 @@
 class_name DerbyHud
 extends CanvasLayer
-## On-screen info: player health, cars left, countdown / round messages and a
-## short feed of eliminations.
+## On-screen info: player health, nitro and hop, round timer, cars alive,
+## kill feed, the Next Derby screen, spectator hint and round results.
 
-var _health_label: Label
+const ACCENT := Color(1.0, 0.72, 0.15)
+
+var _status_box: VBoxContainer
+var _car_label: Label
 var _health_bar: ProgressBar
+var _nitro_bar: ProgressBar
+var _hop_label: Label
+var _map_label: Label
+var _timer_label: Label
 var _alive_label: Label
 var _center_label: Label
 var _sub_label: Label
 var _feed: VBoxContainer
-var _hint: Label
+var _spectate_label: Label
+var _quality_label: Label
+var _intro: PanelContainer
+var _intro_map: Label
+var _intro_car: Label
+var _intro_rule: Label
+var _intro_count: Label
+var _results: PanelContainer
+var _results_title: Label
+var _results_grid: GridContainer
 
 
 func _ready() -> void:
@@ -18,58 +34,195 @@ func _ready() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 
-	var health_box := VBoxContainer.new()
-	health_box.position = Vector2(24, 20)
-	health_box.custom_minimum_size = Vector2(260, 0)
-	root.add_child(health_box)
-	_health_label = _make_label(22)
-	health_box.add_child(_health_label)
-	_health_bar = ProgressBar.new()
-	_health_bar.custom_minimum_size = Vector2(260, 18)
-	_health_bar.show_percentage = false
-	health_box.add_child(_health_bar)
+	_status_box = VBoxContainer.new()
+	_place(_status_box, Vector2(0, 0), Rect2(24, 20, 280, 0))
+	root.add_child(_status_box)
+	_car_label = _make_label(20)
+	_status_box.add_child(_car_label)
+	_health_bar = _make_bar(Color(0.3, 0.85, 0.35))
+	_status_box.add_child(_health_bar)
+	var nitro_row := HBoxContainer.new()
+	var nitro_tag := _make_label(14)
+	nitro_tag.text = "NITRO"
+	nitro_row.add_child(nitro_tag)
+	_nitro_bar = _make_bar(Color(0.3, 0.6, 1.0))
+	_nitro_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_nitro_bar.custom_minimum_size.y = 10
+	nitro_row.add_child(_nitro_bar)
+	_status_box.add_child(nitro_row)
+	_hop_label = _make_label(14)
+	_status_box.add_child(_hop_label)
+
+	_map_label = _make_label(18)
+	_map_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_place(_map_label, Vector2(0.5, 0), Rect2(-200, 14, 400, 0))
+	root.add_child(_map_label)
+	_timer_label = _make_label(40)
+	_timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_place(_timer_label, Vector2(0.5, 0), Rect2(-200, 38, 400, 0))
+	root.add_child(_timer_label)
 
 	_alive_label = _make_label(26)
-	_place(_alive_label, Vector2(1, 0), Rect2(-300, 20, 276, 0))
 	_alive_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_place(_alive_label, Vector2(1, 0), Rect2(-300, 20, 276, 0))
 	root.add_child(_alive_label)
-
 	_feed = VBoxContainer.new()
-	_place(_feed, Vector2(1, 0), Rect2(-400, 64, 376, 0))
+	_place(_feed, Vector2(1, 0), Rect2(-460, 62, 436, 0))
 	root.add_child(_feed)
 
 	_center_label = _make_label(72)
 	_center_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_place(_center_label, Vector2(0.5, 0.5), Rect2(-500, -130, 1000, 0))
+	_place(_center_label, Vector2(0.5, 0.5), Rect2(-600, -150, 1200, 0))
 	root.add_child(_center_label)
-
 	_sub_label = _make_label(24)
 	_sub_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_place(_sub_label, Vector2(0.5, 0.5), Rect2(-500, -20, 1000, 0))
+	_place(_sub_label, Vector2(0.5, 0.5), Rect2(-600, -40, 1200, 0))
 	root.add_child(_sub_label)
 
-	_hint = _make_label(16)
-	_place(_hint, Vector2(0, 1), Rect2(24, -44, 900, 0))
-	_hint.text = "W/S or ↑/↓ drive   A/D or ←/→ steer   Space handbrake   R restart"
-	_hint.modulate = Color(1, 1, 1, 0.7)
-	root.add_child(_hint)
+	_spectate_label = _make_label(20)
+	_spectate_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_place(_spectate_label, Vector2(0.5, 1), Rect2(-400, -90, 800, 0))
+	root.add_child(_spectate_label)
+
+	var hint := _make_label(14)
+	hint.text = "W/S drive · A/D steer · Shift nitro · E hop · Q brace · Space handbrake · F3 graphics · R restart"
+	hint.modulate = Color(1, 1, 1, 0.7)
+	_place(hint, Vector2(0, 1), Rect2(24, -40, 1000, 0))
+	root.add_child(hint)
+	_quality_label = _make_label(14)
+	_quality_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_quality_label.modulate = Color(1, 1, 1, 0.7)
+	_place(_quality_label, Vector2(1, 1), Rect2(-324, -40, 300, 0))
+	root.add_child(_quality_label)
+
+	_build_intro(root)
+	_build_results(root)
 
 
-func set_player(car: DerbyCar) -> void:
+func _build_intro(root: Control) -> void:
+	_intro = _make_panel()
+	_place(_intro, Vector2(0.5, 0.5), Rect2(-330, -170, 660, 0))
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 8)
+	_intro.add_child(box)
+	var title := _make_label(26)
+	title.text = "NEXT DERBY"
+	title.add_theme_color_override("font_color", ACCENT)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(title)
+	_intro_map = _make_label(64)
+	_intro_map.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(_intro_map)
+	_intro_car = _make_label(26)
+	_intro_car.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(_intro_car)
+	_intro_rule = _make_label(20)
+	_intro_rule.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_intro_rule.modulate = Color(1, 1, 1, 0.85)
+	box.add_child(_intro_rule)
+	_intro_count = _make_label(20)
+	_intro_count.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_intro_count.add_theme_color_override("font_color", ACCENT)
+	box.add_child(_intro_count)
+	_intro.visible = false
+	root.add_child(_intro)
+
+
+func _build_results(root: Control) -> void:
+	_results = _make_panel()
+	_place(_results, Vector2(0.5, 0.5), Rect2(-360, -220, 720, 0))
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 10)
+	_results.add_child(box)
+	_results_title = _make_label(36)
+	_results_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_results_title.add_theme_color_override("font_color", ACCENT)
+	box.add_child(_results_title)
+	_results_grid = GridContainer.new()
+	_results_grid.columns = 4
+	_results_grid.add_theme_constant_override("h_separation", 36)
+	_results_grid.add_theme_constant_override("v_separation", 4)
+	box.add_child(_results_grid)
+	_results.visible = false
+	root.add_child(_results)
+
+
+func show_intro(map_name: String, car_label: String, rule: String) -> void:
+	_results.visible = false
+	_intro.visible = true
+	_intro_map.text = map_name
+	_intro_car.text = "Everyone drives: %s" % car_label
+	_intro_rule.text = rule
+	_status_box.visible = false
+
+
+func set_intro_countdown(seconds: float) -> void:
+	_intro_count.text = "Starting in %d" % ceili(seconds)
+
+
+func hide_intro() -> void:
+	_intro.visible = false
+	_status_box.visible = true
+
+
+## rows: Array of [place, name, survived seconds, knock-offs, is_player]
+func show_results(title: String, rows: Array) -> void:
+	_results.visible = true
+	_results_title.text = title
+	for child in _results_grid.get_children():
+		child.free()
+	for header in ["#", "Driver", "Survived", "Knock-offs"]:
+		var label := _make_label(16)
+		label.text = header
+		label.modulate = Color(1, 1, 1, 0.6)
+		_results_grid.add_child(label)
+	for row in rows:
+		var cells := [str(row[0]), row[1], "%d:%04.1f" % [int(row[2]) / 60, fmod(row[2], 60.0)], str(row[3])]
+		for cell in cells:
+			var label := _make_label(20)
+			label.text = cell
+			if row[4]:
+				label.add_theme_color_override("font_color", ACCENT)
+			_results_grid.add_child(label)
+
+
+func hide_results() -> void:
+	_results.visible = false
+
+
+func set_map(map_name: String) -> void:
+	_map_label.text = map_name.to_upper()
+
+
+func set_timer(seconds: float, warning: bool) -> void:
+	var s := maxi(ceili(seconds), 0)
+	_timer_label.text = "%d:%02d" % [s / 60, s % 60]
+	_timer_label.add_theme_color_override("font_color", Color(1, 0.35, 0.25) if warning else Color.WHITE)
+
+
+func set_quality(text: String) -> void:
+	_quality_label.text = "Graphics: %s (F3)" % text
+
+
+func update_player(car: DerbyCar) -> void:
+	_car_label.text = "%s · %s" % [car.stats["label"], "OUT" if not car.alive else "HP %d" % ceili(car.health)]
 	_health_bar.max_value = car.max_health
-	update_health(car)
-
-
-func update_health(car: DerbyCar) -> void:
-	if not car.alive:
-		_health_label.text = "%s · OUT" % car.stats["label"]
-	else:
-		_health_label.text = "%s · HP %d" % [car.stats["label"], ceili(car.health)]
 	_health_bar.value = car.health
+	_nitro_bar.value = car.nitro * 100.0
+	if not car.alive:
+		_hop_label.text = ""
+	elif car.hop_cooldown > 0.0:
+		_hop_label.text = "HOP in %.1fs" % car.hop_cooldown
+	else:
+		_hop_label.text = "HOP ready (E)"
 
 
 func set_alive_count(alive: int, total: int) -> void:
-	_alive_label.text = "Cars left: %d / %d" % [alive, total]
+	_alive_label.text = "Alive: %d / %d" % [alive, total]
+
+
+func set_spectating(name: String) -> void:
+	_spectate_label.text = "" if name == "" else "Spectating %s · ←/→ to switch" % name
 
 
 func show_message(text: String, sub := "") -> void:
@@ -77,15 +230,17 @@ func show_message(text: String, sub := "") -> void:
 	_sub_label.text = sub
 
 
-func add_feed(text: String) -> void:
+func add_feed(text: String, highlight := false) -> void:
 	var label := _make_label(18)
 	label.text = text
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	if highlight:
+		label.add_theme_color_override("font_color", ACCENT)
 	_feed.add_child(label)
-	while _feed.get_child_count() > 5:
+	while _feed.get_child_count() > 6:
 		_feed.get_child(0).free()
 	var tween := label.create_tween()
-	tween.tween_interval(5.0)
+	tween.tween_interval(6.0)
 	tween.tween_property(label, "modulate:a", 0.0, 1.0)
 	tween.tween_callback(label.queue_free)
 
@@ -106,6 +261,37 @@ func _place(control: Control, anchor: Vector2, rect: Rect2) -> void:
 	control.offset_right = rect.position.x + rect.size.x
 	control.offset_top = rect.position.y
 	control.offset_bottom = rect.position.y + rect.size.y
+
+
+func _make_panel() -> PanelContainer:
+	var panel := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.04, 0.05, 0.07, 0.82)
+	style.border_color = Color(ACCENT, 0.8)
+	style.border_width_top = 3
+	style.corner_radius_top_left = 6
+	style.corner_radius_top_right = 6
+	style.corner_radius_bottom_left = 6
+	style.corner_radius_bottom_right = 6
+	style.content_margin_left = 28
+	style.content_margin_right = 28
+	style.content_margin_top = 20
+	style.content_margin_bottom = 22
+	panel.add_theme_stylebox_override("panel", style)
+	return panel
+
+
+func _make_bar(color: Color) -> ProgressBar:
+	var bar := ProgressBar.new()
+	bar.custom_minimum_size = Vector2(280, 16)
+	bar.show_percentage = false
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = color
+	var bg := StyleBoxFlat.new()
+	bg.bg_color = Color(0, 0, 0, 0.5)
+	bar.add_theme_stylebox_override("fill", fill)
+	bar.add_theme_stylebox_override("background", bg)
+	return bar
 
 
 func _make_label(font_size: int) -> Label:
