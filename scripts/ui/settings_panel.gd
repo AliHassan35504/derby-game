@@ -109,6 +109,11 @@ func _grid() -> GridContainer:
 
 
 func _section(grid: GridContainer, text: String) -> void:
+	if grid.get_child_count() > 0:
+		for i in 2:
+			var gap := Control.new()
+			gap.custom_minimum_size.y = 6
+			grid.add_child(gap)
 	grid.add_child(UiKit.label(text.to_upper(), 16, UiKit.ACCENT))
 	grid.add_child(Control.new())
 
