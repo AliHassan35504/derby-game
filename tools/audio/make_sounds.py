@@ -201,8 +201,8 @@ def build_sfx(w):
 
 def build_music(w):
 	print("music (takes a minute)")
-	w.save("music/round.ogg", songs.round_track(), True, -16.0, "music", quality=4)
-	w.save("music/menu.ogg", songs.menu_track(), True, -17.0, "music", quality=4)
+	w.save("music/round.ogg", songs.round_track(), True, -16.0, "music", quality=1)
+	w.save("music/menu.ogg", songs.menu_track(), True, -17.0, "music", quality=1)
 
 
 def main():
