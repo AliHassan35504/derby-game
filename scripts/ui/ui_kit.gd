@@ -84,6 +84,7 @@ static func button(text: String, callback: Callable, min_width := 320.0) -> Butt
 	b.custom_minimum_size = Vector2(min_width, 50)
 	b.add_theme_font_size_override("font_size", 22)
 	b.pressed.connect(callback)
+	Sfx.hook_button(b)
 	return b
 
 

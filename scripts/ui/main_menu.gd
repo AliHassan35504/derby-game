@@ -148,6 +148,7 @@ func _fill_map_grid(grid: GridContainer) -> void:
 		card.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		var index := i
 		card.pressed.connect(func() -> void: quick_race_requested.emit(index))
+		Sfx.hook_button(card)
 		grid.add_child(card)
 	if grid.get_child_count() > 0:
 		(grid.get_child(0) as Control).grab_focus()
