@@ -144,6 +144,8 @@ var _next_misfire := 2.0
 ## Which way a damaged car's steering pulls (-1 or 1).
 var _pull_side := 1.0
 var _horn_ready := 0.0
+var _skid_marks: SkidMarks
+var _last_marks: Array[Vector3] = [Vector3.INF, Vector3.INF, Vector3.INF, Vector3.INF]
 
 
 func _init() -> void:
@@ -357,12 +359,33 @@ func _air_control() -> void:
 		apply_torque(forward * roll * AIR_ROLL * mass)
 
 
+## Tyre smoke from sliding rear wheels, and skid marks under any wheel
+## that slides.
 func _update_tyre_smoke() -> void:
 	var speed := linear_velocity.length()
 	for i in _rear_wheels.size():
 		var wheel := _rear_wheels[i]
 		var sliding := wheel.is_in_contact() and wheel.get_skidinfo() < 0.35 and speed > 4.0
 		_tyre_smoke[i].emitting = sliding and alive
+	if _skid_marks == null or not is_instance_valid(_skid_marks):
+		_skid_marks = SkidMarks.find(self)
+		if _skid_marks == null:
+			return
+	var wheels := _front_wheels + _rear_wheels
+	for i in wheels.size():
+		var wheel := wheels[i]
+		var slip := 1.0 - wheel.get_skidinfo()
+		if not wheel.is_in_contact() or slip < 0.5 or speed < 3.0:
+			_last_marks[i] = Vector3.INF
+			continue
+		var point := wheel.get_contact_point()
+		var last: Vector3 = _last_marks[i]
+		if last == Vector3.INF:
+			_last_marks[i] = point
+		elif last.distance_to(point) >= SkidMarks.STEP:
+			if last.distance_to(point) < 2.0:
+				_skid_marks.add_mark(last, point, wheel.get_contact_normal(), stats["wheel_width"] * 0.9, slip)
+			_last_marks[i] = point
 
 
 func _track_contacts() -> void:
@@ -524,6 +547,69 @@ func _make_particles(color: Color, radius: float, life: float, speed: float, cou
 	return particles
 
 
+## Soft white billboards that swell and fade, for sliding tyres.
+func _make_tyre_smoke() -> GPUParticles3D:
+	var particles := GPUParticles3D.new()
+	particles.amount = 24
+	particles.lifetime = 1.6
+	particles.emitting = false
+	particles.local_coords = false
+	var proc := ParticleProcessMaterial.new()
+	proc.direction = Vector3.UP
+	proc.spread = 40.0
+	proc.initial_velocity_min = 0.4
+	proc.initial_velocity_max = 1.4
+	proc.gravity = Vector3(0, 0.5, 0)
+	proc.damping_min = 0.5
+	proc.damping_max = 1.0
+	proc.scale_min = 0.8
+	proc.scale_max = 1.3
+	var grow := Curve.new()
+	grow.add_point(Vector2(0, 0.4))
+	grow.add_point(Vector2(1, 2.6))
+	var grow_tex := CurveTexture.new()
+	grow_tex.curve = grow
+	proc.scale_curve = grow_tex
+	var fade := Gradient.new()
+	fade.set_color(0, Color(0.92, 0.92, 0.92, 0.65))
+	fade.set_color(1, Color(0.9, 0.9, 0.9, 0.0))
+	var fade_tex := GradientTexture1D.new()
+	fade_tex.gradient = fade
+	proc.color_ramp = fade_tex
+	particles.process_material = proc
+	var quad := QuadMesh.new()
+	quad.size = Vector2(1.2, 1.2)
+	var mat := StandardMaterial3D.new()
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	mat.vertex_color_use_as_albedo = true
+	mat.albedo_texture = _puff_texture()
+	quad.material = mat
+	particles.draw_pass_1 = quad
+	add_child(particles)
+	return particles
+
+
+static var _puff: GradientTexture2D
+
+
+static func _puff_texture() -> GradientTexture2D:
+	if _puff:
+		return _puff
+	var g := Gradient.new()
+	g.set_color(0, Color(1, 1, 1, 1))
+	g.set_color(1, Color(1, 1, 1, 0))
+	_puff = GradientTexture2D.new()
+	_puff.gradient = g
+	_puff.fill = GradientTexture2D.FILL_RADIAL
+	_puff.fill_from = Vector2(0.5, 0.5)
+	_puff.fill_to = Vector2(0.5, 0.0)
+	_puff.width = 64
+	_puff.height = 64
+	return _puff
+
+
 func _build_wheels() -> void:
 	var size: Vector3 = stats["size"]
 	var radius: float = stats["wheel_radius"]
@@ -549,8 +635,6 @@ func _build_wheels() -> void:
 				_front_wheels.append(wheel)
 			else:
 				_rear_wheels.append(wheel)
-				var smoke := _make_particles(Color(0.85, 0.85, 0.85, 0.35), 0.45, 1.4, 1.2, 20)
+				var smoke := _make_tyre_smoke()
 				smoke.position = wheel.position + Vector3(0, -radius * 0.8, 0)
-				(smoke.process_material as ParticleProcessMaterial).scale_max = 2.4
-				(smoke.process_material as ParticleProcessMaterial).gravity = Vector3(0, 0.4, 0)
 				_tyre_smoke.append(smoke)

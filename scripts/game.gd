@@ -181,6 +181,7 @@ func start_round() -> void:
 	map = MAPS[_playlist[_series_index % _playlist.size()]].new()
 	Sfx.play_music("menu")
 	add_child(map)
+	map.add_child(SkidMarks.new())
 	map.apply_quality(GameSettings.quality)
 
 	var spawns := map.get_spawn_points(_drivers.size())
