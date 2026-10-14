@@ -24,6 +24,13 @@ var nitro_refill_multiplier := 1.0
 var hop_multiplier := 1.0
 ## Tyre grip on this map's roads, e.g. below 1 on ice.
 var grip_multiplier := 1.0
+## Scales the gravity on cars in the air (no wheel on the road), e.g. below
+## 1 in orbit, so hops and big hits float. Cars on the road keep their full
+## weight so they still grip, and cars in the air tumble less and right
+## themselves. Applied in _physics_process.
+var gravity_multiplier := 1.0
+## True on maps set at night, so the game can switch on headlights.
+var night := false
 var road_width := 4.0
 ## How far below each road its stilts reach.
 var stilt_bottom := -5.0
@@ -52,6 +59,8 @@ var _links := {}
 var _pieces: Array[Node3D] = []
 var _spawns: Array[Transform3D] = []
 var _collapse_queue: Array[Node3D] = []
+## Roads with a gap to jump, keyed "from>to" both ways (see add_jump_road).
+var _jumps := {}
 
 
 ## Subclasses lay out the map here.
@@ -230,6 +239,87 @@ func add_sagging_road(from_id: String, to_id: String, sag: float, sections := 10
 	_pieces.append(road)
 	_roads.append({"body": road, "start": start, "end": end, "thickness": thickness, "sag": sag, "from": from_id, "to": to_id})
 	return road
+
+
+## Like add_road, but with a gap to jump, centred at a fraction along the
+## road. Both sides of the gap end in a kicker rising lip metres over
+## lip_length, so a car launches off one and lands on the far one's
+## down-slope. One body, so it collapses as one piece. Never gets plain
+## stilts. Bots read jump_on() to line up and carry enough speed.
+func add_jump_road(from_id: String, to_id: String, at := 0.5, gap := 6.0, lip := 1.0, lip_length := 5.0, thickness := 0.45) -> StaticBody3D:
+	var ends := _road_ends(from_id, to_id)
+	_links[from_id].append(to_id)
+	_links[to_id].append(from_id)
+	var start: Vector3 = ends[0]
+	var end: Vector3 = ends[1]
+	var length := start.distance_to(end)
+	var forward := (end - start) / length
+	var right := Vector3.UP.cross(forward).normalized()
+	var up := forward.cross(right).normalized()
+	var road := StaticBody3D.new()
+	road.collision_layer = ROAD_LAYER
+	road.collision_mask = 0
+	road.name = "Road_" + from_id + "-" + to_id
+	road.transform = Transform3D(Basis(right, up, forward), (start + end) * 0.5 - up * thickness * 0.5)
+	add_child(road)
+	# In the body's space the deck runs along Z with its top at y = thickness / 2.
+	var g0 := (at - 0.5) * length - gap * 0.5
+	var g1 := g0 + gap
+	var top := thickness * 0.5
+	var kit := MeshKit.new()
+	var parts := [
+		[Transform3D(Basis.IDENTITY, Vector3(0, 0, (-length * 0.5 + g0) * 0.5)), Vector3(road_width, thickness, g0 + length * 0.5)],
+		[Transform3D(Basis.IDENTITY, Vector3(0, 0, (length * 0.5 + g1) * 0.5)), Vector3(road_width, thickness, length * 0.5 - g1)],
+	]
+	var slope_len := Vector2(lip, lip_length).length()
+	var depth := thickness + lip
+	for side in [-1.0, 1.0]:
+		# The kicker's top runs from deck level up to the lip at the gap edge.
+		var edge: float = g0 if side < 0.0 else g1
+		var low := Vector2(edge + side * lip_length, top)
+		var high := Vector2(edge, top + lip)
+		var along: Vector3 = Vector3(0, high.y - low.y, high.x - low.x).normalized() * -side
+		var normal := Vector3(0, lip_length, lip * side).normalized()
+		var mid := Vector3(0, (low.y + high.y) * 0.5, (low.x + high.x) * 0.5)
+		parts.append([Transform3D(Basis(Vector3.RIGHT, normal, along), mid - normal * depth * 0.5), Vector3(road_width, depth, slope_len)])
+	for part in parts:
+		var shape := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		box.size = part[1]
+		shape.shape = box
+		shape.transform = part[0]
+		road.add_child(shape)
+		kit.box(part[0], part[1])
+	kit.instance(road, _road_material)
+	_pieces.append(road)
+	_roads.append({"body": road, "start": start, "end": end, "thickness": thickness, "sag": 0.0, "from": from_id, "to": to_id, "gap": [g0, g1]})
+	var lip_a := road.transform * Vector3(0, top + lip, g0)
+	var lip_b := road.transform * Vector3(0, top + lip, g1)
+	var launch := atan2(lip, lip_length)
+	var slope := asin(clampf(forward.y, -1.0, 1.0))
+	_jumps[from_id + ">" + to_id] = {"takeoff": lip_a, "landing": lip_b, "speed": _jump_speed(gap, launch + slope, lip_b.y - lip_a.y)}
+	_jumps[to_id + ">" + from_id] = {"takeoff": lip_b, "landing": lip_a, "speed": _jump_speed(gap, launch - slope, lip_a.y - lip_b.y)}
+	return road
+
+
+## The jump on the road from one pad to the next, or an empty dictionary:
+## takeoff and landing (the tops of the two lips) and the slowest speed that
+## clears the gap.
+func jump_on(from_id: String, to_id: String) -> Dictionary:
+	return _jumps.get(from_id + ">" + to_id, {})
+
+
+## Slowest launch speed that carries a car's front wheels a couple of metres
+## past a gap, launching at an angle and landing rise metres higher.
+func _jump_speed(gap: float, angle: float, rise: float) -> float:
+	var g := 9.8 * gravity_multiplier
+	var reach := gap + 2.0
+	for i in 200:
+		var v := 4.0 + i * 0.25
+		var t := reach / (v * cos(angle))
+		if v * sin(angle) * t - 0.5 * g * t * t >= rise - 0.4:
+			return v
+	return 54.0
 
 
 ## A point on a sagging road's deck, t from 0 at the start to 1 at the end.
@@ -530,6 +620,45 @@ func add_weather(amount: int, flake: float, tint: Color, fall: float, drift: flo
 	add_child(particles)
 	_weather = particles
 	return particles
+
+
+## A visible beam of light in hazy air (searchlights, floodlights): an open
+## cone from a lamp, widening from radius_a to radius_b over its length.
+## Its node's -Z points along the beam, so turning the node swings it.
+func add_light_beam(at: Vector3, direction: Vector3, length: float, radius_a: float, radius_b: float, colour: Color, strength := 0.03) -> MeshInstance3D:
+	var kit := MeshKit.new()
+	kit.tube(Vector3.ZERO, Vector3.FORWARD * length, radius_a, radius_b, 24)
+	var beam := MeshInstance3D.new()
+	beam.mesh = kit.commit(make_shader_material("light_beam", {"colour": colour, "strength": strength, "length": length}))
+	beam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(beam)
+	beam.global_transform = Transform3D(MeshKit.frame(-direction), at)
+	return beam
+
+
+## The cars still in the round (the game adds them next to the map).
+func live_cars() -> Array:
+	var found := []
+	var parent := get_parent()
+	if parent == null:
+		return found
+	for child in parent.get_children():
+		if child is DerbyCar and child.alive:
+			found.append(child)
+	return found
+
+
+func _physics_process(_delta: float) -> void:
+	if gravity_multiplier == 1.0:
+		return
+	for car: DerbyCar in live_cars():
+		var grounded := car.is_on_ground()
+		car.gravity_scale = 1.0 if grounded else gravity_multiplier
+		# Floating cars tumble less and slowly right themselves (thrusters,
+		# say), so most still land on their wheels.
+		car.angular_damp = 0.0 if grounded else 2.0
+		if not grounded:
+			car.apply_torque(car.global_basis.y.cross(Vector3.UP) * car.mass * 5.0)
 
 
 func _process(_delta: float) -> void:

@@ -16,6 +16,10 @@ const MAPS := [
 	preload("res://scripts/maps/canyon_bridges.gd"),
 	preload("res://scripts/maps/neon_overpass.gd"),
 	preload("res://scripts/maps/frozen_peaks.gd"),
+	preload("res://scripts/maps/rooftop_run.gd"),
+	preload("res://scripts/maps/volcano_core.gd"),
+	preload("res://scripts/maps/stadium_jumps.gd"),
+	preload("res://scripts/maps/orbital_ring.gd"),
 ]
 const INTRO_TIME := 5.0
 const COUNTDOWN := 3.0
@@ -201,7 +205,7 @@ func start_round() -> void:
 	var stage := ""
 	if mode == Mode.CHAMPIONSHIP:
 		stage = "Championship · Round %d of %d" % [_series_index + 1, _playlist.size()]
-	hud.show_intro(map.map_name, DerbyCar.CAR_TYPES[map.car_type]["label"], map.rule_text, stage)
+	hud.show_intro(map.map_name, DerbyCar.CAR_TYPES.get(map.car_type, DerbyCar.CAR_TYPES["van"])["label"], map.rule_text, stage)
 	hud.set_alive_count(cars.size(), cars.size())
 	hud.set_timer(round_length, false)
 	state = State.INTRO
@@ -506,7 +510,7 @@ func _map_info() -> Array:
 	for script in MAPS:
 		var m: DerbyMap = script.new()
 		holder.add_child(m)
-		info.append({"name": m.map_name, "car": DerbyCar.CAR_TYPES[m.car_type]["label"], "rule": m.rule_text})
+		info.append({"name": m.map_name, "car": DerbyCar.CAR_TYPES.get(m.car_type, DerbyCar.CAR_TYPES["van"])["label"], "rule": m.rule_text})
 	holder.free()
 	return info
 

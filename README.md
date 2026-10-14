@@ -65,6 +65,10 @@ because it isn't code-signed yet: click **More info → Run anyway**.
 | Canyon Bridges | Bulldog Muscle | Midday desert canyon: rope spans and timber trestles between sandstone mesas, in a figure eight that crosses over itself; nitro refills 50% faster |
 | Neon Overpass | Cruiser Sedan | Night city: a stacked highway interchange between skyscrapers and neon signs, crossing over and under itself five times; wet roads, 15% less grip |
 | Frozen Peaks | Kestrel Rally | Dawn in the mountains: ice roads on rock arches in a six-pointed star round a high summit, falling snow, a frozen lake below; a third less grip |
+| Rooftop Run | Police car | Night downtown: steel girder roads between skyscraper rooftops round a helipad hub, sweeping searchlights and a police helicopter; crosswind gusts (with a warning) push cars sideways |
+| Volcano Core | Supercar | Basalt bridges with glowing seams over a lava lake, smoke and embers; every 20 s or so the vent rumbles, then erupts: a blast throws nearby cars and lava bombs land on red target rings |
+| Stadium Jumps | Hatchback | Floodlit stadium with packed stands: a raised race track with kicker ramps over gaps, one leaping across the low road; hit them flat out (nitro helps) or drop onto the grass |
+| Orbital Ring | Big Foot monster truck | Space station truss roads above the Earth, a turning habitat ring, stars and sun glare; low gravity once your wheels leave the deck, so hops fly high and big hits carry |
 
 ## Project layout
 
@@ -77,9 +81,9 @@ because it isn't code-signed yet: click **More info → Run anyway**.
 | `scripts/player_controller.gd` | Keyboard / gamepad driving |
 | `scripts/bot_controller.gd` | Bot AI: follow the roads, pick a target, ram it, stay on the road |
 | `scripts/maps/derby_map.gd` | Map building blocks: pads, roads, stilts, collapse, sky and lighting |
-| `scripts/maps/*.gd` | The seven maps |
+| `scripts/maps/*.gd` | The eleven maps |
 | `scripts/maps/mesh_kit.gd` | Merges boxes, beams, tubes and rock shells into single meshes for map scenery |
-| `shaders/` | Road decks (planks, asphalt, wet asphalt, steel grating, ice), rock (sandstone, snowy granite), concrete, steel, containers, city windows and streets, sky, ocean and clouds |
+| `shaders/` | Road decks (planks, asphalt, wet asphalt, steel grating, ice), rock (sandstone, snowy granite), concrete, steel, containers, city windows and streets, sky, ocean and clouds, race track and pitch, crowd, light beams, helipad, lava, basalt, station hull, Earth and space sky |
 | `scripts/chase_camera.gd` | Third-person follow camera |
 | `scripts/hud.gd` | Health, nitro, timer, kill feed, Next Derby screen, scoreboard and standings |
 | `scripts/game_settings.gd` | Settings and their save file |

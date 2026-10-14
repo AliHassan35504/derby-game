@@ -36,6 +36,7 @@ func build() -> void:
 	road_width = 5.2
 	plain_stilts = false
 	grip_multiplier = 0.85
+	night = true
 	_rng.seed = 2088
 
 	make_environment(Color(0.01, 0.015, 0.04), Color(0.16, 0.08, 0.2), Color(0.02, 0.02, 0.03),

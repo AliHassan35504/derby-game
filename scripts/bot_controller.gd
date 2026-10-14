@@ -14,6 +14,8 @@ const PROBE_DISTANCES := [3.0, 6.0, 10.0, 15.0, 21.0]
 const PLAN_DECEL := 3.0
 ## Ram the target directly once it is this close.
 const HUNT_RANGE := 26.0
+## Start lining up and building speed for a jump this far before its lip.
+const JUMP_RUNUP := 40.0
 
 var rivals: Array = []
 var map: DerbyMap
@@ -38,6 +40,7 @@ var _speed_limit := 30.0
 var _hunting := false
 var _repicked := false
 var _stuck_count := 0
+var _jump_nitro := false
 
 
 func _physics_process(delta: float) -> void:
@@ -74,7 +77,7 @@ func _physics_process(delta: float) -> void:
 	else:
 		car.throttle_input = 1.0
 
-	car.nitro_input = false
+	car.nitro_input = _jump_nitro
 	car.brace_input = false
 	if _target and _hunting:
 		var to_target := _target.global_position - car.global_position
@@ -107,6 +110,8 @@ func _think(speed: float) -> void:
 	var pos := car.global_position
 	_repicked = false
 	var goal := _navigate(pos)
+	if _jump_think(pos, speed):
+		return
 	var goal_angle := _angle_to(goal)
 
 	if _hunting:
@@ -158,6 +163,57 @@ func _think(speed: float) -> void:
 	limit = minf(limit, [0.0, 0.0, 8.0, 12.0, 18.0, 30.0][depth])
 	limit = minf(limit, _corner_limit)
 	_speed_limit = limit
+
+
+## On a road with a gap to jump: hold the centre line, carry enough speed
+## (with nitro) over the kicker, and if too slow or crooked near the lip,
+## stop and back up for another run. Returns false when no jump is near.
+func _jump_think(pos: Vector3, speed: float) -> bool:
+	_jump_nitro = false
+	if _previous == "" or _waypoint == _previous:
+		return false
+	var jump := map.jump_on(_previous, _waypoint)
+	if jump.is_empty():
+		return false
+	var takeoff: Vector3 = jump["takeoff"]
+	var landing: Vector3 = jump["landing"]
+	var dir := _flat(landing - takeoff).normalized()
+	var gap := _flat(landing - takeoff).length()
+	var to_lip := _flat(takeoff - pos).dot(dir)
+	if to_lip > JUMP_RUNUP or to_lip < -gap - 2.0:
+		return false
+	var flat_forward := _flat(car.get_forward()).normalized()
+	# Still turning onto the road on the pad: let the normal driving sweep
+	# round the corner first.
+	var abreast := takeoff - dir * to_lip
+	var offset := _flat(pos - abreast).length()
+	# Still turning onto the road on the pad, or off the centre line: let
+	# the normal driving line up first.
+	if to_lip > 8.0 and (_on_pad(pos, _previous) or flat_forward.dot(dir) < 0.85 or offset > 0.9):
+		return false
+	_hunting = false
+	var aim := abreast + dir * clampf(speed * 0.7, 7.0, 14.0)
+	_steer = _pursuit_steer(clampf(_angle_to(aim), -0.9, 0.9), clampf(_flat(aim - pos).length(), 3.0, 15.0), speed)
+	var crooked := flat_forward.dot(dir) < cos(0.14) or offset > 1.1
+	var needed: float = jump["speed"] * 1.2 + 1.5
+	_speed_limit = 60.0
+	if to_lip <= 0.5:
+		# On the lip or in the air: keep it straight and floored.
+		_steer = clampf(_steer, -0.15, 0.15)
+		return true
+	var stopping := speed * speed / 12.0 + 3.0
+	if to_lip < stopping and (speed < needed * 0.85 or crooked):
+		# Not going to make it: stop short and back up for another go.
+		_speed_limit = 0.0
+		if absf(speed) < 1.0:
+			_reverse_time = 2.5
+			_reverse_steer = 0.0
+			_waypoint = ""
+		return true
+	_jump_nitro = speed < needed + 4.0 and not crooked
+	if to_lip < maxf(speed * 0.12, 0.8) and speed < jump["speed"] * 1.1:
+		car.hop_input = true
+	return true
 
 
 ## Drive straight at the target. If the road ends just past it (it is on an
