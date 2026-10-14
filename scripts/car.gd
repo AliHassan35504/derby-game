@@ -9,6 +9,8 @@ extends VehicleBody3D
 signal eliminated(car: DerbyCar, reason: String, by: DerbyCar)
 signal health_changed(car: DerbyCar, health: float)
 signal hit(car: DerbyCar, amount: float)
+## A car-to-car impact hurt this car; by is the car it hit (stunt cash uses it).
+signal impact(car: DerbyCar, by: DerbyCar, amount: float)
 
 const CAR_TYPES := {
 	"van": {
@@ -128,6 +130,10 @@ var last_toucher: DerbyCar
 var last_touch_time := -100.0
 var knockoffs := 0
 var survived := 0.0
+## Scale the damage this car deals to and takes from other cars (the Ram
+## pickup sets these for a while, see scripts/pickups.gd).
+var damage_dealt_multiplier := 1.0
+var damage_taken_multiplier := 1.0
 
 var _base_mass := 1000.0
 var _prev_velocity := Vector3.ZERO
@@ -400,12 +406,12 @@ func _check_impact_damage() -> void:
 	var dv := dv_vec.length()
 	if dv < DAMAGE_THRESHOLD:
 		return
-	var hit_car := false
+	var other: DerbyCar = null
 	for body in get_colliding_bodies():
 		if body is DerbyCar:
-			hit_car = true
+			other = body
 			break
-	if not hit_car:
+	if other == null:
 		return
 	var amount := (dv - DAMAGE_THRESHOLD) * DAMAGE_PER_MPS
 	# Being shoved backwards means the impact landed on our front bumper.
@@ -415,8 +421,13 @@ func _check_impact_damage() -> void:
 		amount *= 0.7
 	CarVisuals.apply_impact(self, dv_vec)
 	# No single crash takes more than 40% health, so head-on hits hurt
-	# without ending the round on the first second.
-	take_damage(minf(amount, max_health * 0.4))
+	# without ending the round on the first second (unless the other car
+	# has a damage boost).
+	var boost := damage_taken_multiplier * other.damage_dealt_multiplier
+	amount = minf(amount * boost, max_health * 0.4 * maxf(boost, 1.0))
+	if alive and amount > 0.0:
+		impact.emit(self, other, amount)
+	take_damage(amount)
 
 
 func take_damage(amount: float) -> void:
@@ -428,6 +439,20 @@ func take_damage(amount: float) -> void:
 	_update_damage_look()
 	if health <= 0.0:
 		_eliminate("wrecked")
+
+
+func heal(amount: float) -> void:
+	if not alive or amount <= 0.0:
+		return
+	health = minf(health + amount, max_health)
+	health_changed.emit(self, health)
+	_update_damage_look()
+
+
+## Credits another car for shoving this one, as if it had touched us.
+func register_push(by: DerbyCar) -> void:
+	last_toucher = by
+	last_touch_time = _clock
 
 
 func get_credit() -> DerbyCar:

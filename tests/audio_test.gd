@@ -28,7 +28,7 @@ func _initialize() -> void:
 		if music:
 			_expect(music.get_length() >= 60.0 and music.get_length() <= 120.0, "music length %.1fs" % music.get_length())
 	for name in ["bump_1", "bump_2", "bump_3", "crunch_1", "crunch_2", "crunch_3", "glass", "land_1", "land_2",
-			"explosion", "splash", "fall_whoosh", "nitro_burst", "hop", "horn"]:
+			"explosion", "splash", "fall_whoosh", "nitro_burst", "hop", "horn", "pickup", "shockwave"]:
 		_expect(load(CarAudio.SFX_DIR + name + ".ogg") is AudioStreamOggVorbis, "loads " + name)
 
 	map = BoardwalkMap.new()

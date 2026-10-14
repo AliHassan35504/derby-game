@@ -197,7 +197,7 @@ func hide_intro() -> void:
 
 
 ## rows: Array of [place, name, survived seconds, knock-offs, is_player,
-## points gained]. standings: Array of [place, name, points, is_player], or
+## points gained, and optionally stunt cash]. standings: Array of [place, name, points, is_player], or
 ## empty outside a championship.
 func show_results(title: String, rows: Array, standings := [], footer := "") -> void:
 	_results.visible = true
@@ -206,14 +206,19 @@ func show_results(title: String, rows: Array, standings := [], footer := "") -> 
 	_results_grid.visible = true
 	_clear(_results_grid)
 	var with_points := not standings.is_empty()
-	_results_grid.columns = 5 if with_points else 4
+	var with_cash: bool = not rows.is_empty() and rows[0].size() > 6
 	var headers := ["#", "Driver", "Survived", "Knock-offs"]
+	if with_cash:
+		headers.append("Cash")
 	if with_points:
 		headers.append("Pts")
+	_results_grid.columns = headers.size()
 	for header in headers:
 		_add_cell(_results_grid, header, 16, false, true)
 	for row in rows:
 		var cells := [str(row[0]), row[1], "%d:%04.1f" % [int(row[2]) / 60, fmod(row[2], 60.0)], str(row[3])]
+		if with_cash:
+			cells.append(Career.money(row[6]))
 		if with_points:
 			cells.append("+%d" % row[5])
 		for cell in cells:

@@ -53,6 +53,12 @@ jobs:
           grep -q "AUDIO TEST PASS" audio.log
           if grep -qE "SCRIPT ERROR|Parse Error" audio.log; then exit 1; fi
 
+      - name: Pickups, stunt cash and career
+        run: |
+          timeout 300 ./godot --headless --path . -s tests/pickup_test.gd 2>&1 | tee pickup.log
+          grep -q "PICKUP TEST PASS" pickup.log
+          if grep -qE "SCRIPT ERROR|Parse Error" pickup.log; then exit 1; fi
+
   windows-build:
     name: Build Windows .exe
     runs-on: ubuntu-latest
