@@ -19,6 +19,9 @@ var rivals: Array = []
 var map: DerbyMap
 ## 0..1, lowers aim accuracy and reaction for easier bots.
 var skill := 0.8
+## Pad to drive to instead of hunting (a repair pickup, set by
+## PickupManager through set_detour()), or "".
+var detour_pad := ""
 
 @onready var car: DerbyCar = get_parent()
 
@@ -196,7 +199,7 @@ func _navigate(pos: Vector3) -> Vector3:
 	if map == null:
 		return _target.global_position if _target else pos + car.get_forward() * 10.0
 	var hunt_aim := Vector3.ZERO
-	if _target:
+	if _target and detour_pad == "":
 		var to_target := _target.global_position - pos
 		if to_target.length() < HUNT_RANGE and absf(to_target.y) < 3.0 and _target.is_on_ground() and _road_reaches(_target.global_position):
 			_hunting = true
@@ -235,6 +238,16 @@ func _navigate(pos: Vector3) -> Vector3:
 	return hunt_aim if _hunting else aim
 
 
+## Heads for a pad (e.g. a repair pickup) instead of the target; "" ends
+## the detour and goes back to hunting.
+func set_detour(pad: String) -> void:
+	if pad == detour_pad:
+		return
+	detour_pad = pad
+	if _waypoint != "" and map:
+		_next = _next_after(_waypoint)
+
+
 func _flat(v: Vector3) -> Vector3:
 	return Vector3(v.x, 0, v.z)
 
@@ -243,6 +256,10 @@ func _next_after(pad: String) -> String:
 	var links: Array = map.pad_links(pad)
 	if links.is_empty():
 		return pad
+	if detour_pad != "":
+		# Stop on the detour pad itself (the pickup sits in its middle).
+		var detour := map.route(pad, detour_pad)
+		return detour[1] if detour.size() > 1 else pad
 	if _target:
 		var path := map.route(pad, map.nearest_pad(_target.global_position))
 		if path.size() > 1:

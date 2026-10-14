@@ -5,6 +5,7 @@ scratch and writes them into assets/audio/.
     python3 tools/audio/make_sounds.py            # everything
     python3 tools/audio/make_sounds.py --no-music # skip the slow music render
     python3 tools/audio/make_sounds.py --check DIR  # also write spectrograms
+    python3 tools/audio/make_sounds.py --only pickups  # just one group
 
 Nothing is sampled: engines, impacts, weather, UI and music are all built
 from oscillators, noise, filters, modal resonators and synthetic rooms
@@ -188,6 +189,7 @@ def build_sfx(w):
 	w.save("sfx/nitro_burst.ogg", sx.nitro_burst(), False, -13.0, "events")
 	w.save("sfx/hop.ogg", sx.hop(), False, -13.0, "events")
 	w.save("sfx/horn.ogg", sx.horn(), False, -14.0, "events")
+	build_pickups(w)
 	print("ui")
 	w.save("ui/click.ogg", sx.ui_click(), False, -18.0, "ui")
 	w.save("ui/hover.ogg", sx.ui_hover(), False, -22.0, "ui")
@@ -197,6 +199,13 @@ def build_sfx(w):
 	w.save("ui/sting_lose.ogg", songs.sting_lose(), False, -13.0, "ui")
 	w.save("ui/sting_elimination.ogg", songs.sting_elimination(), False, -15.0, "ui")
 	w.save("ui/sting_player_out.ogg", songs.sting_player_out(), False, -12.0, "ui")
+
+
+def build_pickups(w):
+	print("pickups and cash")
+	w.save("sfx/pickup.ogg", sx.pickup_chime(), False, -13.0, "pickups", quality=3)
+	w.save("sfx/shockwave.ogg", sx.shockwave(), False, -10.0, "pickups", quality=3)
+	w.save("ui/cash.ogg", sx.cash_jingle(), False, -15.0, "pickups", quality=3)
 
 
 def build_music(w):
@@ -209,10 +218,14 @@ def main():
 	ap = argparse.ArgumentParser()
 	ap.add_argument("--no-music", action="store_true")
 	ap.add_argument("--check", metavar="DIR", help="write spectrogram PNGs here")
+	ap.add_argument("--only", choices=["engines", "sfx", "pickups", "music"], help="build just this group")
 	args = ap.parse_args()
 	if not shutil.which("ffmpeg"):
 		sys.exit("ffmpeg (with libvorbis) is needed to write the .ogg files")
 	w = Writer(args.check)
+	if args.only:
+		{"engines": build_engines, "sfx": build_sfx, "pickups": build_pickups, "music": build_music}[args.only](w)
+		sys.exit(0 if w.report() else 1)
 	build_engines(w)
 	build_sfx(w)
 	if not args.no_music:

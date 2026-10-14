@@ -371,6 +371,62 @@ def horn(seed=44, length_s=0.75):
 
 
 # ----------------------------------------------------------------------------
+# Pickups and stunt cash
+
+
+def _bell(n, freq, decay_s, rng, bright=1.0):
+	"""A small struck bell: slightly inharmonic partials, upper ones dying fast."""
+	modes = [(freq * r, a * bright ** i, decay_s * d) for i, (r, a, d) in enumerate(
+		((1.0, 1.0, 1.0), (2.01, 0.45, 0.55), (3.03, 0.22, 0.35), (4.27, 0.12, 0.2), (5.41, 0.06, 0.12)))]
+	return modal(n, modes, rng) * env_ad(n, 0.0015, 10.0)
+
+
+def pickup_chime(seed=61):
+	"""Collecting a pickup: a quick rising three-note bell arpeggio over an
+	upward shimmer of noise."""
+	rng = _rng(seed)
+	n = secs(1.3)
+	x = np.zeros(n)
+	for i, f in enumerate((659.3, 987.8, 1318.5)):
+		place(x, _bell(n, f, 0.35 - 0.06 * i, rng), secs(0.055 * i), 1.0 - 0.15 * i)
+	sweep = filt(rng.standard_normal(n), lambda f: bp(f, 6500.0, 1.5)) * env_ad(n, 0.12, 0.1)
+	x = fade(normalize_peak(x, 0) + 0.18 * normalize_peak(sweep, 0), 0.0, 0.3)
+	x = wet(x, room_ir(0.5, 0.25, rng, bright=9000.0), 0.18)
+	return trim_tail(fade(soft_clip(normalize_peak(x, 0) * 0.95, 1.2), 0.0005, 0.05), -60, 0.08)
+
+
+def cash_jingle(seed=62):
+	"""Stunt cash: a till's ka-ching, a mechanical clack then a bright ring
+	with a few coins jangling."""
+	rng = _rng(seed)
+	n = secs(1.0)
+	clack = _noise_burst(n, rng, 900.0, 7000.0, 0.006) + 0.6 * modal(n, [(410.0, 1.0, 0.015), (1180.0, 0.6, 0.01)], rng)
+	ring = np.zeros(n)
+	place(ring, _bell(n, 2093.0, 0.32, rng, 0.8) + 0.8 * _bell(n, 2637.0, 0.28, rng, 0.8), secs(0.045))
+	coins = _grains(n, rng, 7, 0.06, 0.3,
+		lambda r: modal(secs(0.08), [(r.uniform(4500.0, 7500.0), 1.0, 0.012), (r.uniform(8000.0, 11000.0), 0.5, 0.008)], r))
+	x = 0.55 * normalize_peak(clack, 0) + normalize_peak(ring, 0) + 0.25 * normalize_peak(coins, 0)
+	x = filt(x, lambda f: hp(f, 250.0, 2))
+	return trim_tail(fade(soft_clip(normalize_peak(x, 0) * 0.95, 1.3), 0.0005, 0.3), -60, 0.08)
+
+
+def shockwave(seed=63):
+	"""The shockwave pickup going off: a deep sub boom, a crack, and a wide
+	rushing whoosh that sweeps down as the ring spreads."""
+	rng = _rng(seed)
+	n = secs(1.5)
+	t = np.arange(n) / SR
+	boom = np.sin(TAU * np.cumsum(32.0 + 85.0 * np.exp(-t / 0.06)) / SR) * env_ad(n, 0.003, 0.35)
+	crack = _noise_burst(n, rng, 600.0, 9000.0, 0.025)
+	rush = rng.standard_normal(n) * env_ad(n, 0.02, 0.4)
+	rush = stft_filter(rush, lambda tt, f: bp(f, 3200.0 * np.exp(-tt / 0.3) + 180.0, 1.0), frame=1024, hop=256)
+	zap = np.sin(TAU * np.cumsum(900.0 * np.exp(-t / 0.12) + 120.0) / SR) * env_ad(n, 0.001, 0.15)
+	x = normalize_peak(boom, 0) + 0.45 * normalize_peak(crack, 0) + 0.6 * normalize_peak(rush, 0) + 0.18 * normalize_peak(zap, 0)
+	x = soft_clip(normalize_peak(x, 0) * 1.3, 1.8)
+	return trim_tail(fade(x, 0.0005, 0.08), -60, 0.12)
+
+
+# ----------------------------------------------------------------------------
 # UI
 
 

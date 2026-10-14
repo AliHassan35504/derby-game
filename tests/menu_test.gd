@@ -11,6 +11,10 @@ var wait := 0.0
 
 
 func _initialize() -> void:
+	# Keep the player's real career file out of it.
+	Career.path = "user://profile_menu_test.cfg"
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(Career.path))
+	Career.load_profile()
 	game = load("res://scenes/main.tscn").instantiate()
 	root.add_child(game)
 
@@ -46,6 +50,8 @@ func _process(delta: float) -> bool:
 			game._next_round()
 		4:
 			_check(game.state == game.State.FINAL, "final standings after the last map")
+			_check(Career.rounds == game._playlist.size(), "career counts every round played")
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(Career.path))
 			game.show_menu()
 			wait = 0.5
 		5:

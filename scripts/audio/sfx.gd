@@ -23,6 +23,7 @@ const UI := {
 	"lose": "res://assets/audio/ui/sting_lose.ogg",
 	"elimination": "res://assets/audio/ui/sting_elimination.ogg",
 	"player_out": "res://assets/audio/ui/sting_player_out.ogg",
+	"cash": "res://assets/audio/ui/cash.ogg",
 }
 const MUSIC_BUS := &"Music"
 const SFX_BUS := &"SFX"

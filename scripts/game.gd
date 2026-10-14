@@ -43,6 +43,10 @@ var mode := Mode.CHAMPIONSHIP
 var round_time := 0.0
 var round_length := 150.0
 var autotest := false
+## Pickups and stunt cash for the current round (children of the map).
+var pickups: PickupManager
+var stunts: StuntScore
+var stunt_hud: StuntHud
 
 ## Map indices to play in order, and where we are in them.
 var _playlist: Array[int] = []
@@ -78,6 +82,8 @@ func _ready() -> void:
 	hud = DerbyHud.new()
 	add_child(hud)
 	hud.set_quality(GameSettings.QUALITY_NAMES[GameSettings.quality])
+	stunt_hud = StuntHud.new()
+	hud.add_child(stunt_hud)
 
 	if autotest:
 		mode = Mode.AUTOTEST
@@ -165,6 +171,8 @@ func _clear_round() -> void:
 	hud.hide_intro()
 	hud.show_message("")
 	hud.set_spectating("")
+	stunt_hud.clear()
+	stunt_hud.set_car(null)
 
 
 func start_round() -> void:
@@ -193,6 +201,7 @@ func start_round() -> void:
 		for child in car.get_children():
 			if child is BotController:
 				child.rivals = cars
+	_start_extras(spawns)
 
 	camera.target = player
 	camera.orbit_center = Vector3(0, 30, 0)
@@ -417,6 +426,7 @@ func _end_round(winner: DerbyCar) -> void:
 		camera.target = winner
 	hud.set_spectating("")
 	Sfx.round_over(winner == player and not autotest)
+	stunts.finish_round(winner)
 
 	var ranking: Array[DerbyCar] = []
 	if winner:
@@ -436,7 +446,8 @@ func _end_round(winner: DerbyCar) -> void:
 		if mode == Mode.CHAMPIONSHIP:
 			gained = POINTS[mini(i, POINTS.size() - 1)]
 			_points[car.display_name] = _points.get(car.display_name, 0) + gained
-		rows.append([i + 1, car.display_name, car.survived, car.knockoffs, car == player and not autotest, gained])
+		rows.append([i + 1, car.display_name, car.survived, car.knockoffs, car == player and not autotest, gained, stunts.cash_of(car)])
+	_record_career(winner)
 
 	var title := "DRAW"
 	if winner == player and not autotest:
@@ -526,6 +537,51 @@ func _finish_autotest_round(winner: DerbyCar, ranking: Array[DerbyCar]) -> void:
 		return
 	_series_index += 1
 	start_round()
+
+
+# --- Pickups, stunt cash and career ------------------------------------------
+# (scripts/pickups.gd, scripts/stunt_score.gd, scripts/stunt_hud.gd,
+# scripts/career.gd)
+
+func _start_extras(spawns: Array[Transform3D]) -> void:
+	var avoid: Array[Vector3] = []
+	for spawn in spawns:
+		avoid.append(spawn.origin)
+	pickups = PickupManager.new()
+	map.add_child(pickups)
+	pickups.setup(map, cars, avoid)
+	pickups.collected.connect(_on_pickup_collected)
+	stunts = StuntScore.new()
+	map.add_child(stunts)
+	stunts.setup(cars)
+	stunts.cash_awarded.connect(_on_cash_awarded)
+	stunt_hud.clear()
+	stunt_hud.set_car(player)
+
+
+func _on_pickup_collected(car: DerbyCar, kind: int) -> void:
+	if car == player and not autotest:
+		var info: Dictionary = Pickup.INFO[kind]
+		stunt_hud.notice(info["name"], info["hint"], info["color"])
+
+
+func _on_cash_awarded(car: DerbyCar, amount: int, label: String) -> void:
+	if car != player:
+		return
+	stunt_hud.set_cash(stunts.cash_of(player))
+	# End-of-round bonuses show in the results table instead.
+	if state == State.FIGHT and not autotest:
+		stunt_hud.popup_cash(amount, label)
+
+
+func _record_career(winner: DerbyCar) -> void:
+	if autotest:
+		var earned := cars.map(func(c: DerbyCar) -> String: return "%s %s" % [c.display_name, Career.money(stunts.cash_of(c))])
+		print("  pickups collected: %s; stunt cash: %s" % [pickups.collected_counts, ", ".join(earned)])
+		return
+	if player == null:
+		return
+	Career.record_round(stunts.cash_of(player), winner == player, player.knockoffs, player.survived, stunts.biggest_hit.get(player, 0.0))
 
 
 func _setup_input() -> void:
