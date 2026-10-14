@@ -5,6 +5,10 @@ extends Node
 @onready var car: DerbyCar = get_parent()
 
 
+func _ready() -> void:
+	car.air_control = true
+
+
 func _physics_process(_delta: float) -> void:
 	car.throttle_input = Input.get_axis("reverse", "accelerate")
 	# Steering right is negative on the car.
@@ -14,3 +18,5 @@ func _physics_process(_delta: float) -> void:
 	car.brace_input = Input.is_action_pressed("brace")
 	if Input.is_action_just_pressed("hop"):
 		car.hop_input = true
+	if Input.is_action_just_pressed("horn"):
+		car.honk()

@@ -73,7 +73,10 @@ func _ready() -> void:
 	_setup_input()
 	camera = ChaseCamera.new()
 	camera.fov = GameSettings.fov
+	camera.base_fov = GameSettings.fov
 	camera.far = 3000.0
+	camera.view = GameSettings.camera_view as ChaseCamera.View
+	camera.free_look_enabled = not autotest
 	add_child(camera)
 	hud = DerbyHud.new()
 	add_child(hud)
@@ -265,6 +268,18 @@ func _physics_process(delta: float) -> void:
 		hud.update_player(player)
 
 
+## Captures the mouse for free look while driving; frees it in menus,
+## results and the pause menu (which shows it when it opens).
+func _process(_delta: float) -> void:
+	if autotest:
+		return
+	camera.look_back = Input.is_action_pressed("look_back") and state in [State.COUNTDOWN, State.FIGHT]
+	var drive := state in [State.INTRO, State.COUNTDOWN, State.FIGHT] and DisplayServer.window_is_focused()
+	var mode_wanted := Input.MOUSE_MODE_CAPTURED if drive else Input.MOUSE_MODE_VISIBLE
+	if Input.mouse_mode != mode_wanted:
+		Input.mouse_mode = mode_wanted
+
+
 func _fight_step(delta: float) -> void:
 	round_time += delta
 	var remaining := round_length - round_time
@@ -317,6 +332,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		show_menu()
 	elif state == State.RESULTS and event.is_action_pressed("ui_accept") and _state_time > 1.5:
 		_next_round()
+	elif event.is_action_pressed("camera_view"):
+		hud.add_feed("Camera: " + camera.cycle_view())
+		GameSettings.camera_view = camera.view
+		GameSettings.save_settings()
 	elif event.is_action_pressed("restart"):
 		start_round()
 	elif event.is_action_pressed("graphics"):
@@ -490,7 +509,7 @@ func _show_final() -> void:
 
 
 func _apply_settings() -> void:
-	camera.fov = GameSettings.fov
+	camera.base_fov = GameSettings.fov
 	if map:
 		map.apply_quality(GameSettings.quality)
 	hud.set_quality(GameSettings.QUALITY_NAMES[GameSettings.quality])
@@ -542,6 +561,9 @@ func _setup_input() -> void:
 	_add_action("graphics", [KEY_F3], -1, 0.0)
 	_add_action("spectate_next", [KEY_RIGHT, KEY_D], -1, 0.0, JOY_BUTTON_DPAD_RIGHT)
 	_add_action("spectate_prev", [KEY_LEFT, KEY_A], -1, 0.0, JOY_BUTTON_DPAD_LEFT)
+	_add_action("camera_view", [KEY_V], -1, 0.0, JOY_BUTTON_Y)
+	_add_action("look_back", [KEY_C], -1, 0.0, JOY_BUTTON_RIGHT_STICK)
+	_add_action("horn", [KEY_H], -1, 0.0, JOY_BUTTON_LEFT_STICK)
 
 
 func _add_action(action: String, keys: Array, axis: int, axis_dir: float, button := -1) -> void:

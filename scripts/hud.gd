@@ -89,7 +89,7 @@ func _ready() -> void:
 	root.add_child(_spectate_label)
 
 	var hint := _make_label(14)
-	hint.text = "W/S drive · A/D steer · Shift nitro · E hop · Q brace · Space handbrake · Esc pause"
+	hint.text = "W/S drive · A/D steer · Shift nitro · E hop · Q brace · Space handbrake · Mouse look · V camera · C look back · H horn · Esc pause"
 	hint.modulate = Color(1, 1, 1, 0.7)
 	_place(hint, Vector2(0, 1), Rect2(24, -40, 1000, 0))
 	root.add_child(hint)

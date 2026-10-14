@@ -82,6 +82,18 @@ const BRACE_MASS := 1.8
 ## instead of rolling over on their own. Hits and drops still flip them.
 const ANTI_ROLL := 6.0
 const ROLL_DAMPING := 1.5
+## Air control (player only): how hard the keys pitch and roll the car in
+## the air, per kg, and the fastest spin they can build up.
+const AIR_PITCH := 4.0
+const AIR_ROLL := 1.3
+const AIR_SPIN_LIMIT := 3.0
+## Handbrake: rear wheels lock up and lose grip so the tail slides out.
+const HANDBRAKE_REAR := 15.0
+const HANDBRAKE_GRIP := 0.75
+## Below this health fraction the engine starts to lose power, misfire and
+## the steering pulls to one side.
+const DAMAGE_WEAR_START := 0.5
+const HORN_COOLDOWN := 0.5
 
 @export var car_type := "van"
 @export var display_name := "Car"
@@ -106,6 +118,8 @@ var nitro_input := false
 var brace_input := false
 ## Set true for one frame to request a hop.
 var hop_input := false
+## Lets the steer/throttle keys pitch and roll the car in the air.
+var air_control := false
 
 var nitro := 1.0
 var hop_cooldown := 0.0
@@ -122,6 +136,14 @@ var _smoke: GPUParticles3D
 var _fire: GPUParticles3D
 var _flames: GPUParticles3D
 var _clock := 0.0
+var _front_wheels: Array[VehicleWheel3D] = []
+var _rear_wheels: Array[VehicleWheel3D] = []
+var _tyre_smoke: Array[GPUParticles3D] = []
+var _misfire := 0.0
+var _next_misfire := 2.0
+## Which way a damaged car's steering pulls (-1 or 1).
+var _pull_side := 1.0
+var _horn_ready := 0.0
 
 
 func _init() -> void:
@@ -139,6 +161,7 @@ func _ready() -> void:
 	health = max_health
 	center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
 	center_of_mass = Vector3(0, stats["com_y"], 0)
+	_pull_side = -1.0 if randf() < 0.5 else 1.0
 	_build_body()
 	_build_wheels()
 	add_child(CarAudio.new())
@@ -177,6 +200,29 @@ func is_nitro_active() -> bool:
 	return alive and controls_enabled and nitro_input and nitro > 0.02
 
 
+## Sounds the horn (ignored while it is still sounding).
+func honk() -> void:
+	if not alive or _clock < _horn_ready:
+		return
+	_horn_ready = _clock + HORN_COOLDOWN
+	var audio := get_node_or_null("CarAudio")
+	if audio:
+		audio.honk()
+
+
+## 1 when healthy, falling towards 0 as damage wears the car out.
+func wear() -> float:
+	return clampf((health / max_health) / DAMAGE_WEAR_START, 0.0, 1.0)
+
+
+func wheels_touching() -> int:
+	var touching := 0
+	for wheel in _front_wheels + _rear_wheels:
+		if wheel.is_in_contact():
+			touching += 1
+	return touching
+
+
 func _physics_process(delta: float) -> void:
 	_clock += delta
 	if not alive:
@@ -209,6 +255,8 @@ func _physics_process(delta: float) -> void:
 		_flames.emitting = false
 
 	_stabilize()
+	_air_control()
+	_update_tyre_smoke()
 	_track_contacts()
 	_check_impact_damage()
 	_prev_velocity = linear_velocity
@@ -218,9 +266,23 @@ func _apply_controls(delta: float) -> void:
 	var speed := get_forward_speed()
 	# Positive steering turns the car left.
 	var max_steer := max_steer_at(speed)
-	steering = move_toward(steering, steer_input * max_steer, delta * 3.0)
+	# A badly damaged car pulls to one side; the driver has to fight it.
+	var pull := (1.0 - wear()) * 0.12 * _pull_side
+	steering = move_toward(steering, clampf(steer_input * max_steer + pull, -max_steer, max_steer), delta * 3.0)
 	var engine: float = stats["engine"]
 	var top: float = stats["top_speed"]
+	# Damage costs power and top speed, and a wrecked engine misfires.
+	var worn := wear()
+	engine *= lerpf(0.6, 1.0, worn)
+	top *= lerpf(0.8, 1.0, worn)
+	if worn < 0.6:
+		_next_misfire -= delta
+		if _next_misfire <= 0.0:
+			_misfire = randf_range(0.1, 0.25)
+			_next_misfire = randf_range(0.6, 2.5) * (0.4 + worn)
+	_misfire = maxf(_misfire - delta, 0.0)
+	if _misfire > 0.0:
+		engine *= 0.1
 
 	mass = _base_mass * (BRACE_MASS if brace_input else 1.0)
 	if brace_input:
@@ -249,8 +311,14 @@ func _apply_controls(delta: float) -> void:
 		var power := clampf(1.0 - absf(speed) / limit, 0.0, 1.0)
 		engine_force = throttle_input * engine * power
 		brake = 0.0
-	if handbrake_input:
-		brake = 60.0
+	# The handbrake only locks the rear wheels, so the tail slides out for
+	# handbrake turns and drifts. Setting brake above resets every wheel.
+	var rear_grip: float = stats["grip"] * grip_multiplier * (HANDBRAKE_GRIP if handbrake_input else 1.0)
+	for wheel in _rear_wheels:
+		wheel.wheel_friction_slip = rear_grip
+		if handbrake_input:
+			wheel.brake = maxf(wheel.brake, HANDBRAKE_REAR)
+			wheel.engine_force = 0.0
 
 	if hop_input:
 		hop_input = false
@@ -270,6 +338,31 @@ func _stabilize() -> void:
 	var roll := global_basis.x.y
 	var roll_rate := angular_velocity.dot(forward)
 	apply_torque(-forward * (roll * ANTI_ROLL + roll_rate * ROLL_DAMPING) * _base_mass)
+
+
+## Lets the player straighten the car in the air: throttle/reverse pitch
+## the nose down/up and steering rolls it, like GTA.
+func _air_control() -> void:
+	if not air_control or not controls_enabled or wheels_touching() > 0:
+		return
+	var right := global_basis.x
+	var forward := get_forward()
+	var pitch_rate := angular_velocity.dot(right)
+	var roll_rate := angular_velocity.dot(forward)
+	var pitch := throttle_input
+	var roll := -steer_input
+	if absf(pitch_rate) < AIR_SPIN_LIMIT or signf(pitch_rate) != signf(pitch):
+		apply_torque(right * pitch * AIR_PITCH * mass)
+	if absf(roll_rate) < AIR_SPIN_LIMIT or signf(roll_rate) != signf(roll):
+		apply_torque(forward * roll * AIR_ROLL * mass)
+
+
+func _update_tyre_smoke() -> void:
+	var speed := linear_velocity.length()
+	for i in _rear_wheels.size():
+		var wheel := _rear_wheels[i]
+		var sliding := wheel.is_in_contact() and wheel.get_skidinfo() < 0.35 and speed > 4.0
+		_tyre_smoke[i].emitting = sliding and alive
 
 
 func _track_contacts() -> void:
@@ -452,3 +545,12 @@ func _build_wheels() -> void:
 			wheel.wheel_roll_influence = 0.12
 			wheel.add_child(CarVisuals.build_wheel(radius, width, stats["style"]))
 			add_child(wheel)
+			if end > 0.0:
+				_front_wheels.append(wheel)
+			else:
+				_rear_wheels.append(wheel)
+				var smoke := _make_particles(Color(0.85, 0.85, 0.85, 0.35), 0.45, 1.4, 1.2, 20)
+				smoke.position = wheel.position + Vector3(0, -radius * 0.8, 0)
+				(smoke.process_material as ParticleProcessMaterial).scale_max = 2.4
+				(smoke.process_material as ParticleProcessMaterial).gravity = Vector3(0, 0.4, 0)
+				_tyre_smoke.append(smoke)

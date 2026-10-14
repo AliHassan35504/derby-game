@@ -74,6 +74,13 @@ func _init() -> void:
 			func(i: int) -> void: GameSettings.difficulty = i)
 	_option(right, "Round length", GameSettings.ROUND_LENGTH_NAMES, GameSettings.round_length,
 			func(i: int) -> void: GameSettings.round_length = i)
+	_section(right, "Camera")
+	_slider(right, "Mouse sensitivity", 0.2, 3.0, 0.1, GameSettings.mouse_sensitivity,
+			func(v: float) -> void: GameSettings.mouse_sensitivity = v)
+	_option(right, "Invert look", ["Off", "On"], 1 if GameSettings.invert_y else 0,
+			func(i: int) -> void: GameSettings.invert_y = i == 1)
+	_option(right, "Auto-centre", ["Off", "On"], 1 if GameSettings.auto_center else 0,
+			func(i: int) -> void: GameSettings.auto_center = i == 1)
 	var note := UiKit.label("Derby changes apply from the next round.", 15, UiKit.MUTED)
 	right.add_child(Control.new())
 	right.add_child(note)
@@ -150,7 +157,10 @@ func _slider(grid: GridContainer, text: String, low: float, high: float, step: f
 	var readout := UiKit.label("", 16, UiKit.MUTED)
 	readout.custom_minimum_size.x = 52
 	var show_value := func(v: float) -> void:
-		readout.text = str(int(v)) if high > 1.0 else "%d%%" % roundi(v * 100.0)
+		if high <= 1.0:
+			readout.text = "%d%%" % roundi(v * 100.0)
+		else:
+			readout.text = str(int(v)) if step >= 1.0 else "%.1fx" % v
 	show_value.call(value)
 	slider.value_changed.connect(func(v: float) -> void:
 		show_value.call(v)

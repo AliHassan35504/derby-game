@@ -1,7 +1,7 @@
 class_name GameSettings
 extends RefCounted
 ## Player settings, saved to user://settings.cfg between runs: graphics,
-## display, audio volumes and the derby rules picked in the menu.
+## display, audio volumes, camera and the derby rules picked in the menu.
 
 const PATH := "user://settings.cfg"
 const QUALITY_NAMES := ["Low", "Medium", "High"]
@@ -26,6 +26,11 @@ static var difficulty := 1
 static var round_length := 1
 static var player_name := "You"
 static var player_color := 0
+static var mouse_sensitivity := 1.0
+static var invert_y := false
+## Swing the camera back behind the car after free look.
+static var auto_center := true
+static var camera_view := 0
 
 
 static func load_settings() -> void:
@@ -47,6 +52,10 @@ static func load_settings() -> void:
 	if player_name == "":
 		player_name = "You"
 	player_color = clampi(cfg.get_value("player", "color", player_color), 0, DerbyCar.BODY_COLORS.size() - 1)
+	mouse_sensitivity = clampf(cfg.get_value("camera", "mouse_sensitivity", mouse_sensitivity), 0.2, 3.0)
+	invert_y = cfg.get_value("camera", "invert_y", invert_y)
+	auto_center = cfg.get_value("camera", "auto_center", auto_center)
+	camera_view = clampi(cfg.get_value("camera", "view", camera_view), 0, ChaseCamera.VIEW_NAMES.size() - 1)
 
 
 static func save_settings() -> void:
@@ -64,6 +73,10 @@ static func save_settings() -> void:
 	cfg.set_value("derby", "round_length", round_length)
 	cfg.set_value("player", "name", player_name)
 	cfg.set_value("player", "color", player_color)
+	cfg.set_value("camera", "mouse_sensitivity", mouse_sensitivity)
+	cfg.set_value("camera", "invert_y", invert_y)
+	cfg.set_value("camera", "auto_center", auto_center)
+	cfg.set_value("camera", "view", camera_view)
 	cfg.save(PATH)
 
 

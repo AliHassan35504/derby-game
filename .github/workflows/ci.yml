@@ -36,6 +36,11 @@ jobs:
           timeout 300 ./godot --headless --path . -s tests/push_test.gd 2>&1 | tee push.log
           grep -q "PUSH TEST PASS" push.log
 
+      - name: Handbrake, air control and damage wear
+        run: |
+          timeout 300 ./godot --headless --path . -s tests/handling_test.gd 2>&1 | tee handling.log
+          grep -q "HANDLING TEST PASS" handling.log
+
       - name: Menu and championship flow
         run: |
           timeout 600 ./godot --headless --path . -s tests/menu_test.gd 2>&1 | tee menu.log

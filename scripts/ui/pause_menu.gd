@@ -63,6 +63,7 @@ func open() -> void:
 	_buttons.visible = true
 	_settings.visible = false
 	get_tree().paused = true
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_first.grab_focus()
 
 

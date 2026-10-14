@@ -32,7 +32,13 @@ because it isn't code-signed yet: click **More info → Run anyway**.
 | Nitro | Shift | Right bumper |
 | Hop (jump a gap or dodge a hit) | E | A |
 | Brace (heavier, slower, takes less damage) | Q | Left bumper |
-| Handbrake | Space | B |
+| Handbrake (locks the rear wheels: handbrake turns and drifts) | Space | B |
+| Look around (free camera; swings back behind the car while you drive) | Mouse | Right stick |
+| Zoom the camera / reset the look | Mouse wheel / middle click | |
+| Camera view (near chase, far chase, hood) | V | Y |
+| Look back | C | Right stick click |
+| Horn | H | Left stick click |
+| Air control (pitch and roll while airborne) | W S A D | Left stick, triggers |
 | Spectate next / previous car (after you're out) | → / ← | D-pad |
 | Pause (resume, restart, settings, quit) | Esc / P | Start |
 | Graphics quality (Low / Medium / High) | F3 | |

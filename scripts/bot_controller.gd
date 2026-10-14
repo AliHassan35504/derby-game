@@ -45,8 +45,13 @@ func _physics_process(delta: float) -> void:
 		return
 	_retarget_in -= delta
 	if _target == null or not _target.alive or _retarget_in <= 0.0:
+		var previous := _target
 		_target = _pick_target()
 		_retarget_in = randf_range(2.0, 4.0)
+		# Now and then a bot honks as it goes after someone new nearby.
+		if _target and _target != previous and randf() < 0.25 \
+				and _target.global_position.distance_to(car.global_position) < 30.0:
+			car.honk()
 
 	var speed := car.get_forward_speed()
 	if _reverse_time > 0.0:
