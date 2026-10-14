@@ -166,6 +166,7 @@ func _build_help() -> Control:
 		"Every driver gets the same car on each map. The roads are one car wide with no rails.",
 		"Ram the others off the edge or smash them until they blow up. Last car driving wins.",
 		"Hits on your front bumper hurt less, so ram rather than get rammed.",
+		"A damaged car loses power, misfires and pulls to one side. In the air, W/S/A/D tip the car so it lands on its wheels.",
 		"In the last minute the map collapses from the outside in.",
 		"Championship: every map in a row, points for each finish. Most points wins.",
 	]:
@@ -184,7 +185,11 @@ func _build_help() -> Control:
 			"Nitro", "Shift", "Right bumper",
 			"Hop", "E", "A",
 			"Brace (heavier, slower, tougher)", "Q", "Left bumper",
-			"Handbrake", "Space", "B",
+			"Handbrake (drift)", "Space", "B",
+			"Look around", "Mouse", "Right stick",
+			"Camera view", "V", "Y",
+			"Look back", "C", "Right stick click",
+			"Horn", "H", "Left stick click",
 			"Spectate when out", "← / →", "D-pad",
 			"Pause", "Esc", "Start"]:
 		var head: bool = cell in ["Action", "Keyboard", "Gamepad"]
