@@ -191,11 +191,68 @@ def light_housing(body, cutter, emitters, depth=0.075, scale=0.94, housing_mat="
 			pts = [(eu - wd / 2, ev - ht / 2), (eu + wd / 2, ev - ht / 2), (eu + wd / 2, ev + ht / 2), (eu - wd / 2, ev + ht / 2)]
 			pr = core.prism(core.round_polygon(pts, min(wd, ht) * 0.45, 2), back_c, cutter.u, cutter.v, n, 0.004, depth * 0.55, mat)
 			mb.add(pr)
+		elif kind == "outline":
+			# LED light guide following the lamp outline just behind the lens.
+			mb.add(_outline_strip(body, cutter, cen2, eu, ev, size, mat))
 		elif kind == "bulb":
 			sq = core.superquadric(c + n * (size * 0.8), (size, size, size), 1.0, 1.0, 12, 6, mat)
 			# superquadric axes are game axes; fine for a round bulb
 			mb.add(sq)
 	return mb
+
+
+def _outline_strip(body, cutter, cen2, t0, t1, size, mat, samples=28):
+	"""Strip of width size[0] inset size[1] from the lamp outline, running from
+	perimeter fraction t0 to t1, tucked just under the lens surface."""
+	width, inset = size if isinstance(size, (tuple, list)) else (size, size * 1.2)
+	poly = [Vector(p) for p in cutter.poly]
+	c = Vector(cen2)
+	n_ = len(poly)
+	acc = [0.0]
+	for i in range(n_):
+		acc.append(acc[-1] + (poly[(i + 1) % n_] - poly[i]).length)
+	total = acc[-1]
+	if t1 < t0:
+		t1 += 1.0
+	n = cutter.w
+
+	def at(t):
+		s = (t % 1.0) * total
+		k = 0
+		while k < n_ - 1 and acc[k + 1] < s:
+			k += 1
+		span = acc[k + 1] - acc[k]
+		f = 0.0 if span < 1e-9 else (s - acc[k]) / span
+		return poly[k].lerp(poly[(k + 1) % n_], f)
+
+	rows = []
+	for i in range(samples + 1):
+		q = at(lerp(t0, t1, i / samples))
+		d = c - q
+		if d.length < 1e-6:
+			continue
+		d.normalize()
+		qa = q + d * inset
+		qb = q + d * (inset + width)
+		col = []
+		for qq in (qa, qb):
+			far = cutter.to_3d((qq.x, qq.y), 1.0)
+			hit, _nrm = body.ray(far, -n, 3.0)
+			if hit is None:
+				hit = cutter.to_3d((qq.x, qq.y), 0.0)
+			col.append(hit)
+		a_f = col[0] - n * 0.01
+		b_f = col[1] - n * 0.01
+		rows.append([a_f, b_f, b_f - n * 0.02, a_f - n * 0.02])
+	out = MeshBuilder()
+	if len(rows) >= 2:
+		out.grid(rows, mat, close_v=True, smooth=False)
+		f = out.faces[0]
+		a, b, cc = (Vector(out.verts[f[k]]) for k in range(3))
+		# The first quad is the front face of the strip: make it face out.
+		if (b - a).cross(cc - a).dot(n) < 0:
+			out.faces = [tuple(reversed(ff)) for ff in out.faces]
+	return out
 
 
 def grille_insert(body, cutter, style="bars", mat="Trim", frame_mat=None, count=6, depth=0.06, bar_t=0.012, vertical=0):
@@ -335,10 +392,9 @@ def ribbon(samples, width, mat="Gap", closed=False, height=0.0):
 	return mb
 
 
-def raised_strip(samples, width, height, mat, closed=False, round_top=True):
+def raised_strip(samples, width, height, mat, closed=False, round_top=True, steps=4):
 	"""A trim strip / moulding with a rounded cross-section along surface samples."""
 	prof = []
-	steps = 6
 	for k in range(steps + 1):
 		a = math.pi * k / steps
 		prof.append((-math.cos(a) * width * 0.5, math.sin(a) * height if round_top else height))

@@ -1,23 +1,32 @@
 """Lofted car body shells.
 
 A body is a closed loft of cross-sections along Z (rear to front). Each
-half cross-section runs from the bottom centre line, out and up the side to
-the shoulder (belt line), then over the greenhouse or bonnet to the top
-centre line. Every shape parameter is a smooth curve of Z, so one spec
-describes the bumper, bonnet, windscreen, roof, rear window and boot.
+half cross-section runs from the bottom centre line out along the floor,
+round the sill, up the flared lower door to the widest point, in over the
+tumblehome to the shoulder crease (character line), then over the shoulder
+ledge, the greenhouse or bonnet to the top centre line. Every shape parameter
+is a smooth curve of Z, so one spec describes the bumper, bonnet, windscreen,
+roof, rear window and boot.
 
 Section parameters (all functions of z):
-	yb  bottom height at the centre line
-	ym  height of the widest point of the lower body
-	ys  shoulder / belt line height
-	yt  top centre line height (bumper top, bonnet, windscreen, roof ...)
-	w   half width at ym
-	wsh half width at the shoulder
-	wg  half width where the greenhouse starts (wsh - wg is the shoulder ledge)
-	wr  half width at the top (roof / bonnet crown)
-	nb  bottom superellipse exponent (2 round .. 6 boxy)
-	nu  upper superellipse exponent
+	yb   floor height at the centre line
+	ysl  height of the sill top (where the door skin starts to flare out)
+	ym   height of the widest point of the lower body
+	ys   shoulder crease / belt line height
+	yt   top centre line height (bumper top, bonnet, windscreen, roof ...)
+	w    half width at ym
+	tuck how far the sill sits inboard of w
+	rb   radius of the floor-to-sill corner
+	wsh  half width at the shoulder crease
+	wg   half width where the greenhouse starts (wsh - wg is the shoulder ledge)
+	wr   half width at the top (roof / bonnet crown)
+	nu   upper superellipse exponent (2 round .. 6 boxy)
+	cr   radius where the greenhouse side turns into the roof
 The plan view corners are rounded with superellipse falloffs at the ends.
+
+fenders: list of dict(z, y, r0, r1, amount, top, kz) that push the side out
+round each wheel (a plateau of radius r0 fading out by r1, up to height top),
+so the arches read as flared, muscular wings.
 """
 
 import math
@@ -36,7 +45,12 @@ class Body:
 		spec.setdefault("cr", 0.13)
 		spec.setdefault("bulge", 0.03)
 		spec.setdefault("dip", 0.0)
-		for key in ("yb", "ym", "ys", "yt", "w", "wsh", "wg", "wr", "nb", "nu", "cr", "bulge", "dip"):
+		spec.setdefault("tuck", 0.035)
+		spec.setdefault("rb", 0.05)
+		if "ysl" not in spec:
+			yb = spec["yb"]
+			spec["ysl"] = [(z, y + 0.11) for z, y in yb] if not isinstance(yb, (int, float)) else yb + 0.11
+		for key in ("yb", "ysl", "ym", "ys", "yt", "w", "wsh", "wg", "wr", "nu", "cr", "bulge", "dip", "tuck", "rb"):
 			val = spec[key]
 			if isinstance(val, (int, float)):
 				val = [(0.0, val)]
@@ -44,12 +58,16 @@ class Body:
 		self.front = spec.get("front", {})
 		self.rear = spec.get("rear", {})
 		self.ledge_h = spec.get("ledge_h", 0.03)
-		self.na = spec.get("na", 12)
-		self.nbs = spec.get("nbs", 6)
+		self.n_floor = spec.get("n_floor", 2)
+		self.n_corner = spec.get("n_corner", 3)
+		self.n_flare = spec.get("n_flare", 4)
+		self.nbs = spec.get("nbs", 5)
 		self.nc = spec.get("nc", 22)
 		self.stations_n = spec.get("stations", 100)
 		self.extra_z = spec.get("extra_z", [])
 		self.thickness = spec.get("thickness", 0.025)
+		self.fenders = spec.get("fenders", [])
+		self.creases = spec.get("creases", True)
 		self.outer = None
 		self.bvh = None
 
@@ -72,29 +90,49 @@ class Body:
 	def params(self, z):
 		p = {k: c(z) for k, c in self.c.items()}
 		# Keep the stack of heights ordered.
-		p["ym"] = clamp(p["ym"], p["yb"] + 0.02, p["yt"] - 0.02)
+		p["ym"] = clamp(p["ym"], p["yb"] + 0.03, p["yt"] - 0.02)
+		p["ysl"] = clamp(p["ysl"], p["yb"] + 0.012, p["ym"] - 0.01)
 		p["ys"] = clamp(p["ys"], p["ym"] + 0.01, p["yt"] - 0.005)
 		return p
 
-	def half_section_dense(self, z, n_a=40, n_b=16, n_c=80):
-		"""Dense half section at z: list of (x, y) and segment start indices."""
+	def half_section_dense(self, z, n_a=40, n_b=16, n_c=80, segments=False):
+		"""Dense half section at z: list of (x, y) plus the start indices of
+		the side (ib, widest point) and the upper part (ic, shoulder crease).
+		With segments=True also returns the list of segment break indices."""
 		p = self.params(z)
 		pf = self.plan_factor(z)
-		yb, ym, ys, yt = p["yb"], p["ym"], p["ys"], p["yt"]
+		yb, ysl, ym, ys, yt = p["yb"], p["ysl"], p["ym"], p["ys"], p["yt"]
 		w, wsh, wg, wr = p["w"], p["wsh"], p["wg"], p["wr"]
-		nb, nu = p["nb"], p["nu"]
+		nu = p["nu"]
+		wsill = w - p["tuck"]
+		rb = max(0.004, min(p["rb"], (ysl - yb) * 0.95, wsill * 0.5))
 		pts = []
-		for i in range(n_a):
-			a = i / n_a
-			phi = (1.0 - a) * math.pi / 2
-			x = w * math.cos(phi) ** (2.0 / nb)
-			y = ym - (ym - yb) * math.sin(phi) ** (2.0 / nb)
-			pts.append((x, y))
+		breaks = [0]
+		# Floor, out to the start of the sill corner.
+		nf = max(2, n_a // 4)
+		for i in range(nf):
+			pts.append(((wsill - rb) * i / nf, yb))
+		breaks.append(len(pts))
+		# Floor-to-sill corner (quarter circle).
+		nr = max(3, n_a // 4)
+		for i in range(nr):
+			a = -math.pi / 2 + (math.pi / 2) * i / nr
+			pts.append((wsill - rb + rb * math.cos(a), yb + rb + rb * math.sin(a)))
+		pts.append((wsill, yb + rb))
+		breaks.append(len(pts))
+		# Lower door skin flaring out from the sill top to the widest point.
+		nfl = max(4, n_a // 2)
+		for i in range(nfl):
+			t = i / nfl
+			pts.append((wsill + (w - wsill) * (1.0 - (1.0 - t) ** 2), ysl + (ym - ysl) * t))
 		ib = len(pts)
+		breaks.append(ib)
+		# Tumblehome from the widest point in to the shoulder crease.
 		for i in range(n_b):
 			u = i / n_b
-			pts.append((w + (wsh - w) * u ** 1.5, ym + (ys - ym) * u))
+			pts.append((w - (w - wsh) * u * u, ym + (ys - ym) * u))
 		ic = len(pts)
+		breaks.append(ic)
 		h = max(yt - ys, 1e-4)
 		b = min(p["cr"], h)
 		hs = h - b
@@ -119,8 +157,44 @@ class Body:
 			# raised wings).
 			y -= p["dip"] * (1.0 - x0 * x0) ** 1.5
 			pts.append((x0 * env, y))
+		breaks.append(len(pts) - 1)
 		pts = [(x * pf, y) for x, y in pts]
+		if segments:
+			return pts, ib, ic, breaks
 		return pts, ib, ic
+
+	def fender_offset(self, x, y, z):
+		"""Outward push of the side at (|x|, y, z) from the wheel arch blisters."""
+		if not self.fenders:
+			return 0.0
+		p = self.params(z)
+		wpf = max(p["w"] * self.plan_factor(z), 1e-3)
+		side = smoothstep(0.55, 0.93, abs(x) / wpf)
+		if side <= 0.0:
+			return 0.0
+		total = 0.0
+		for f in self.fenders:
+			kz = f.get("kz", 1.0)
+			d = math.hypot((z - f["z"]) * kz, y - f["y"])
+			g = smoothstep(f["r1"], f["r0"], d)
+			if g <= 0.0:
+				continue
+			top = f.get("top", p["ys"])
+			h = 1.0 - smoothstep(top - f.get("top_w", 0.12), top, y)
+			bot = smoothstep(p["yb"] + 0.02, p["ysl"] + 0.06, y)
+			total += f["amount"] * g * h * bot
+		return total * side
+
+	def is_crease(self, co, tol=0.008):
+		"""True when a point on the shell lies on a character line."""
+		if not self.creases:
+			return False
+		z = clamp(co.z, self.z0, self.z1)
+		p = self.params(z)
+		pf = self.plan_factor(z)
+		if abs(co.x) < p["w"] * pf * 0.45:
+			return False
+		return abs(co.y - p["ys"]) < tol or abs(co.y - p["ysl"]) < tol
 
 	def shear(self, z, y):
 		dz = 0.0
@@ -136,11 +210,12 @@ class Body:
 
 	def half_section(self, z):
 		"""Resampled half section with a fixed number of points per segment."""
-		pts, ib, ic = self.half_section_dense(z)
-		seg_a = core.resample_polyline(pts[: ib + 1], self.na + 1)
-		seg_b = core.resample_polyline(pts[ib: ic + 1], self.nbs + 1)
-		seg_c = core.resample_polyline(pts[ic:], self.nc + 1)
-		out = seg_a[:-1] + seg_b[:-1] + seg_c
+		pts, ib, ic, br = self.half_section_dense(z, segments=True)
+		counts = [self.n_floor, self.n_corner, self.n_flare, self.nbs, self.nc]
+		out = []
+		for k, n in enumerate(counts):
+			seg = core.resample_polyline(pts[br[k]: br[k + 1] + 1], n + 1)
+			out.extend(seg if k == len(counts) - 1 else seg[:-1])
 		return [(p.x, p.y) for p in out]
 
 	def section_info(self, z):
@@ -236,6 +311,7 @@ class Body:
 			right = [(-x, y) for x, y in half[-2:0:-1]]
 			ring = []
 			for x, y in left + right:
+				x += math.copysign(self.fender_offset(x, y, z), x) if x != 0.0 else 0.0
 				ring.append(Vector((x, y, z + self.shear(z, y))))
 			rows.append(ring)
 		return rows
@@ -267,13 +343,13 @@ class Body:
 
 	def build_inner(self, name="Inner"):
 		"""Coarser offset copy, facing inwards, for the inside of the panels."""
-		zs = self.zs[::2]
+		zs = self.zs[::3]
 		if zs[-1] != self.zs[-1]:
 			zs.append(self.zs[-1])
-		saved = (self.na, self.nbs, self.nc)
-		self.na, self.nbs, self.nc = max(4, self.na // 2), max(3, self.nbs // 2), max(8, self.nc // 2)
+		saved = (self.n_floor, self.n_corner, self.n_flare, self.nbs, self.nc)
+		self.n_floor, self.n_corner, self.n_flare, self.nbs, self.nc = 1, 2, 2, max(2, self.nbs // 2), max(7, self.nc // 3)
 		rows = self.rings(zs)
-		self.na, self.nbs, self.nc = saved
+		self.n_floor, self.n_corner, self.n_flare, self.nbs, self.nc = saved
 		mb = MeshBuilder()
 		mb.grid(rows, "Interior", close_v=True)
 		obj = mb.build(name, merge=0.0008, recalc=True)

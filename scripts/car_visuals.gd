@@ -2,9 +2,10 @@ class_name CarVisuals
 extends RefCounted
 ## Builds the visible model for each car type from the generated glTF models
 ## in assets/cars (see tools/blender/build_cars.py), restyles their materials
-## by name, and dents the body where the car gets hit. Returns the paint
-## material so the car can darken it as it takes damage. Falls back to simple
-## box bodies when a model is missing.
+## by name, and dents the body where the car gets hit. Bumpers, bonnet and
+## front doors (Part_* nodes) break off as debris after enough hits near them.
+## Returns the paint material so the car can darken it as it takes damage.
+## Falls back to simple box bodies when a model is missing.
 
 const MODEL_DIR := "res://assets/cars/"
 const MODEL_NODE := "CarModel"
@@ -12,15 +13,28 @@ const MODEL_NODE := "CarModel"
 const MAX_DENT := 0.2
 ## Spatial hash cell size for finding vertices near an impact (m).
 const DENT_CELL := 0.4
+## Accumulated hit strength (m/s, weighted by distance) that tears a panel off.
+const PART_BREAK := 15.0
+## Hits further than this from a panel's bounds do not count against it (m).
+const PART_REACH := 0.7
+## Panels that can come off one car, and how long the debris lasts (s).
+const MAX_DEBRIS := 3
+const DEBRIS_LIFE := 8.0
+## Debris lives on its own physics layer and only collides with the world
+## (layer 1), so cars (layer 2) drive through it instead of tripping on it.
+const DEBRIS_LAYER := 4
+const LIGHT_MATERIALS := ["Headlight", "HeadLens", "Taillight", "TailLens"]
 
 const RIM_COLORS := {
 	"sedan": Color(0.72, 0.73, 0.75), "sports": Color(0.16, 0.16, 0.17), "muscle": Color(0.9, 0.9, 0.92),
 	"van": Color(0.88, 0.88, 0.9), "pickup": Color(0.3, 0.3, 0.32), "rally": Color(0.92, 0.92, 0.9),
-	"monster": Color(0.07, 0.07, 0.075),
+	"monster": Color(0.07, 0.07, 0.075), "super": Color(0.1, 0.1, 0.11), "police": Color(0.05, 0.05, 0.055),
+	"hatch": Color(0.82, 0.82, 0.84),
 }
 const CALIPER_COLORS := {
 	"sports": Color(0.8, 0.06, 0.04), "rally": Color(0.95, 0.75, 0.05), "muscle": Color(0.12, 0.12, 0.13),
-	"monster": Color(0.85, 0.08, 0.05),
+	"monster": Color(0.85, 0.08, 0.05), "super": Color(0.95, 0.72, 0.05), "police": Color(0.2, 0.2, 0.22),
+	"hatch": Color(0.85, 0.1, 0.06),
 }
 
 static var _scenes := {}
@@ -47,10 +61,17 @@ static func build_body(car: Node3D, style: String, size: Vector3, color: Color) 
 	car.add_child(model)
 	var decal := _decal_material(color, false)
 	var livery := _decal_material(color, true)
+	if style == "police":
+		# Black-and-white: white doors and roof on dark paint, or the other
+		# way round on a light car, with contrasting lettering.
+		var light := color.get_luminance() > 0.45
+		livery.albedo_color = Color(0.06, 0.06, 0.07) if light else Color(0.94, 0.94, 0.92)
+		decal.albedo_color = Color(0.94, 0.94, 0.92) if light else Color(0.05, 0.05, 0.06)
+	var flasher: LightbarFlasher
 	for mi in _mesh_instances(model):
-		for i in mi.mesh.get_surface_count():
-			var src := mi.mesh.surface_get_material(i)
-			var mat_name := src.resource_name if src else ""
+		var names := _surface_names(mi)
+		for i in names.size():
+			var mat_name: String = names[i]
 			match mat_name:
 				"Paint":
 					mi.set_surface_override_material(i, paint)
@@ -58,8 +79,22 @@ static func build_body(car: Node3D, style: String, size: Vector3, color: Color) 
 					mi.set_surface_override_material(i, decal)
 				"Livery":
 					mi.set_surface_override_material(i, livery)
+				"LightbarRed", "LightbarBlue":
+					# Own material per car so each light bar flashes on its own.
+					var lamp := _shared_material(mat_name, style).duplicate() as StandardMaterial3D
+					mi.set_surface_override_material(i, lamp)
+					if flasher == null:
+						flasher = LightbarFlasher.new()
+						flasher.name = "LightbarFlasher"
+						flasher.car = car
+					if mat_name == "LightbarRed":
+						flasher.red.append(lamp)
+					else:
+						flasher.blue.append(lamp)
 				_:
 					mi.set_surface_override_material(i, _shared_material(mat_name, style))
+	if flasher:
+		car.add_child(flasher)
 	if style == "monster":
 		var rig := SuspensionRig.new()
 		rig.name = "SuspensionRig"
@@ -159,6 +194,7 @@ static func apply_impact(car: RigidBody3D, dv: Vector3) -> void:
 	var push := car.global_basis.inverse() * dv.normalized()
 	var point := _contact_point(car, -push)
 	dent(car, point, push, strength)
+	_damage_parts(car, model, model.transform.affine_inverse() * point, strength)
 
 
 ## Push the body in around local_point (car space) along push, harder for
@@ -334,20 +370,168 @@ static func _break_lights(model: Node3D, p: Vector3) -> void:
 	var body := model.get_node_or_null("Body") as MeshInstance3D
 	if body == null:
 		return
-	var aabb := body.mesh.get_aabb()
+	var aabb: AABB = body.get_meta("rest_aabb", body.mesh.get_aabb())
+	body.set_meta("rest_aabb", aabb)
 	var front := p.z > aabb.get_center().z + aabb.size.z * 0.3
 	var rear := p.z < aabb.get_center().z - aabb.size.z * 0.3
 	if not front and not rear:
 		return
-	var target := "Headlight" if front else "Taillight"
-	for i in body.mesh.get_surface_count():
-		var src := body.mesh.surface_get_material(i)
-		if src and src.resource_name == target:
-			var dead := _shared_material("Broken" + target, "")
-			body.set_surface_override_material(i, dead)
-			if body.has_meta("dent_data"):
-				var mats: Array = body.get_meta("dent_data")["mats"]
-				mats[i] = dead
+	var targets := ["Headlight", "HeadLens"] if front else ["Taillight", "TailLens"]
+	for mi in _mesh_instances(model):
+		var names := _surface_names(mi)
+		for i in names.size():
+			if names[i] in targets:
+				_set_surface_material(mi, i, _shared_material("Broken" + names[i], ""))
+	if front:
+		var car := model.get_parent()
+		for beam_name in ["HeadBeam_L", "HeadBeam_R"]:
+			var beam := car.get_node_or_null(beam_name) if car else null
+			if beam:
+				beam.queue_free()
+		if car:
+			car.set_meta("headlights_broken", true)
+
+
+static func _set_surface_material(mi: MeshInstance3D, i: int, mat: Material) -> void:
+	mi.set_surface_override_material(i, mat)
+	if mi.has_meta("dent_data"):
+		var mats: Array = mi.get_meta("dent_data")["mats"]
+		if i < mats.size():
+			mats[i] = mat
+
+
+## Material names of a mesh's surfaces as imported, remembered before denting
+## swaps the mesh for an unnamed copy.
+static func _surface_names(mi: MeshInstance3D) -> PackedStringArray:
+	if mi.has_meta("surface_names"):
+		return mi.get_meta("surface_names")
+	var names := PackedStringArray()
+	for i in mi.mesh.get_surface_count():
+		var src := mi.mesh.surface_get_material(i)
+		names.append(src.resource_name if src else "")
+	mi.set_meta("surface_names", names)
+	return names
+
+
+# --- lights -----------------------------------------------------------------
+
+
+## Headlights for night maps: brightens the lamp lenses and adds a pair of
+## headlight beams (no shadows). Lamps already smashed stay dark.
+static func set_lights(car: Node3D, on: bool) -> void:
+	car.set_meta("lights_on", on)
+	var model := car.get_node_or_null(MODEL_NODE) as Node3D
+	var meshes: Array[MeshInstance3D] = []
+	if model:
+		meshes = _mesh_instances(model)
+	for mi in meshes:
+		var names := _surface_names(mi)
+		for i in names.size():
+			if not names[i] in LIGHT_MATERIALS:
+				continue
+			var current := mi.get_surface_override_material(i)
+			if current and current.resource_name.begins_with("Broken"):
+				continue
+			_set_surface_material(mi, i, _shared_material(names[i] + (":on" if on else ""), ""))
+	for beam_name in ["HeadBeam_L", "HeadBeam_R"]:
+		var old := car.get_node_or_null(beam_name)
+		if old:
+			old.free()
+	if not on or car.get_meta("headlights_broken", false):
+		return
+	var spots: Array[Vector3] = []
+	if model:
+		for marker in ["Headlight_L", "Headlight_R"]:
+			var node := model.get_node_or_null(marker) as Node3D
+			if node:
+				spots.append(model.transform * node.position)
+	if spots.size() < 2:
+		var size := Vector3(2, 1.4, 4.6)
+		for child in car.get_children():
+			if child is CollisionShape3D and child.shape is BoxShape3D:
+				size = (child.shape as BoxShape3D).size
+		spots = [Vector3(size.x * 0.32, 0.0, size.z * 0.5), Vector3(-size.x * 0.32, 0.0, size.z * 0.5)]
+	for i in 2:
+		var beam := SpotLight3D.new()
+		beam.name = "HeadBeam_L" if i == 0 else "HeadBeam_R"
+		beam.light_color = Color(1.0, 0.95, 0.85)
+		beam.light_energy = 3.0
+		beam.spot_range = 22.0
+		beam.spot_angle = 30.0
+		beam.spot_attenuation = 0.8
+		beam.shadow_enabled = false
+		beam.position = spots[i] + Vector3(0, 0, 0.05)
+		beam.basis = Basis.looking_at(Vector3(spots[i].x * 0.15, -0.12, 1.0))
+		car.add_child(beam)
+
+
+# --- detachable panels ---------------------------------------------------------
+
+
+## Adds this hit (model space point, m/s strength) to every panel near it and
+## tears off the ones that have had enough.
+static func _damage_parts(car: Node3D, model: Node3D, p: Vector3, strength: float) -> void:
+	if strength < 2.0:
+		return
+	var torn: int = car.get_meta("debris_count", 0)
+	if torn >= MAX_DEBRIS:
+		return
+	for child in model.get_children():
+		var mi := child as MeshInstance3D
+		if mi == null or not String(mi.name).begins_with("Part_"):
+			continue
+		var box: AABB = mi.get_meta("rest_aabb", mi.mesh.get_aabb())
+		mi.set_meta("rest_aabb", box)
+		var d := p.clamp(box.position, box.end).distance_to(p)
+		if d > PART_REACH:
+			continue
+		var damage: float = mi.get_meta("part_damage", 0.0) + strength * (1.0 - d / PART_REACH)
+		mi.set_meta("part_damage", damage)
+		if damage >= PART_BREAK and torn < MAX_DEBRIS:
+			torn += 1
+			car.set_meta("debris_count", torn)
+			_detach_part(car, model, mi, box)
+
+
+static func _detach_part(car: Node3D, model: Node3D, mi: MeshInstance3D, box: AABB) -> void:
+	var world := car.get_parent() as Node3D
+	if world == null:
+		return
+	var debris := Debris.new()
+	debris.collision_layer = DEBRIS_LAYER
+	debris.collision_mask = 1
+	debris.mass = clampf(box.size.x * box.size.y * box.size.z * 60.0, 8.0, 30.0)
+	debris.center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
+	debris.center_of_mass = box.get_center()
+	var shape := CollisionShape3D.new()
+	var cube := BoxShape3D.new()
+	cube.size = box.size.max(Vector3.ONE * 0.06)
+	shape.shape = cube
+	shape.position = box.get_center()
+	debris.add_child(shape)
+	var xform := mi.global_transform
+	# Door glass goes with its door.
+	var riders: Array[MeshInstance3D] = [mi]
+	if String(mi.name).begins_with("Part_Door"):
+		for other in _mesh_instances(model):
+			if not String(other.name).begins_with("Glass_"):
+				continue
+			var c := other.mesh.get_aabb().get_center()
+			if signf(c.x) == signf(box.get_center().x) and c.z > box.position.z and c.z < box.end.z:
+				riders.append(other)
+	world.add_child(debris)
+	debris.global_transform = xform
+	for rider in riders:
+		var local := xform.affine_inverse() * rider.global_transform
+		rider.get_parent().remove_child(rider)
+		debris.add_child(rider)
+		rider.transform = local
+	var out := Vector3(signf(box.get_center().x) * 0.6, 0.6, signf(box.get_center().z) * 0.8)
+	var body := car as RigidBody3D
+	var base_velocity := body.linear_velocity if body else Vector3.ZERO
+	debris.linear_velocity = base_velocity + car.global_basis * out * 3.0
+	debris.angular_velocity = Vector3(randf_range(-4, 4), randf_range(-3, 3), randf_range(-4, 4))
+
 
 
 # --- materials -----------------------------------------------------------------
@@ -438,12 +622,61 @@ static func _shared_material(mat_name: String, style: String) -> Material:
 			mat.emission = Color(1.0, 0.45, 0.05)
 			mat.emission_energy_multiplier = 0.5
 			mat.roughness = 0.2
-		"BrokenHeadlight", "BrokenTaillight":
-			mat.albedo_color = Color(0.12, 0.11, 0.1) if mat_name == "BrokenHeadlight" else Color(0.2, 0.02, 0.02)
+		"Headlight:on":
+			mat.albedo_color = Color(1.0, 1.0, 0.96)
+			mat.emission_enabled = true
+			mat.emission = Color(1.0, 0.96, 0.88)
+			mat.emission_energy_multiplier = 6.0
+		"Taillight:on":
+			mat.albedo_color = Color(0.7, 0.03, 0.03)
+			mat.emission_enabled = true
+			mat.emission = Color(1.0, 0.05, 0.03)
+			mat.emission_energy_multiplier = 3.5
+		"HeadLens", "HeadLens:on":
+			# Clear lens over the reflectors and projectors.
+			mat.albedo_color = Color(0.85, 0.9, 0.95, 0.16)
+			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			mat.metallic_specular = 1.0
+			mat.roughness = 0.03
+			if mat_name.ends_with(":on"):
+				mat.emission_enabled = true
+				mat.emission = Color(1.0, 0.96, 0.88)
+				mat.emission_energy_multiplier = 0.6
+		"TailLens", "TailLens:on":
+			mat.albedo_color = Color(0.55, 0.02, 0.025, 0.72)
+			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			mat.metallic_specular = 0.9
+			mat.roughness = 0.06
+			mat.emission_enabled = true
+			mat.emission = Color(1.0, 0.05, 0.03)
+			mat.emission_energy_multiplier = 1.6 if mat_name.ends_with(":on") else 0.35
+		"Indicator:on":
+			mat.albedo_color = Color(0.95, 0.45, 0.05)
+			mat.emission_enabled = true
+			mat.emission = Color(1.0, 0.45, 0.05)
+			mat.emission_energy_multiplier = 0.5
+		"LightbarRed", "LightbarBlue":
+			var red := mat_name == "LightbarRed"
+			mat.albedo_color = Color(0.5, 0.03, 0.03) if red else Color(0.03, 0.06, 0.5)
+			mat.emission_enabled = true
+			mat.emission = Color(1.0, 0.04, 0.03) if red else Color(0.08, 0.25, 1.0)
+			mat.emission_energy_multiplier = 0.2
+			mat.roughness = 0.15
+		"BrokenHeadlight", "BrokenTaillight", "BrokenHeadLens", "BrokenTailLens":
+			mat.albedo_color = Color(0.2, 0.02, 0.02) if mat_name.contains("Tail") else Color(0.12, 0.11, 0.1)
 			mat.roughness = 0.7
+			if mat_name.contains("Lens"):
+				mat.albedo_texture = _crack_texture_get()
+				mat.uv1_triplanar = true
+				mat.uv1_scale = Vector3(4, 4, 4)
+				mat.albedo_color.a = 0.85
+				mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		"Interior":
 			mat.albedo_color = Color(0.085, 0.08, 0.075)
 			mat.roughness = 0.85
+		"Seat":
+			mat.albedo_color = Color(0.13, 0.12, 0.11)
+			mat.roughness = 0.8
 		"Tyre":
 			mat.albedo_color = Color(0.035, 0.035, 0.036)
 			mat.roughness = 0.85
@@ -471,6 +704,7 @@ static func _shared_material(mat_name: String, style: String) -> Material:
 			mat.roughness = 0.35
 		_:
 			mat.albedo_color = Color(0.5, 0.5, 0.5)
+	mat.resource_name = mat_name
 	_materials[key] = mat
 	return mat
 
@@ -549,6 +783,54 @@ class WheelVisual:
 		if _mirror:
 			b = b * Basis(Vector3.UP, PI)
 		caliper.global_basis = b * Basis.from_scale(s)
+
+
+## Flashes the police light bar (red and blue lamps in turn, with a quick
+## double blink) while its car is alive; at night it also throws coloured
+## light around.
+class LightbarFlasher:
+	extends Node
+
+	var car: Node
+	var red: Array[StandardMaterial3D] = []
+	var blue: Array[StandardMaterial3D] = []
+	var _t := 0.0
+	var _glow: OmniLight3D
+
+	func _process(delta: float) -> void:
+		_t += delta
+		var alive: bool = car != null and car.get("alive") != false
+		var phase := fmod(_t, 0.8) / 0.8
+		var r_on := alive and (phase < 0.12 or (phase > 0.2 and phase < 0.32))
+		var b_on := alive and ((phase > 0.5 and phase < 0.62) or (phase > 0.7 and phase < 0.82))
+		for m in red:
+			m.emission_energy_multiplier = 7.0 if r_on else 0.15
+		for m in blue:
+			m.emission_energy_multiplier = 7.0 if b_on else 0.15
+		var night: bool = car != null and car.get_meta("lights_on", false)
+		if night and alive and _glow == null and car is Node3D:
+			_glow = OmniLight3D.new()
+			_glow.omni_range = 7.0
+			_glow.shadow_enabled = false
+			_glow.position = Vector3(0, 1.0, 0)
+			car.add_child(_glow)
+		if _glow:
+			_glow.visible = night and alive and (r_on or b_on)
+			_glow.light_color = Color(1.0, 0.1, 0.08) if r_on else Color(0.15, 0.3, 1.0)
+			_glow.light_energy = 2.5
+
+
+## A panel torn off a car: tumbles away on its own physics layer and
+## disappears after a while.
+class Debris:
+	extends RigidBody3D
+
+	var life := DEBRIS_LIFE
+
+	func _physics_process(delta: float) -> void:
+		life -= delta
+		if life < 0.0:
+			queue_free()
 
 
 ## Moves the monster truck's solid axles and coil-over shocks with the

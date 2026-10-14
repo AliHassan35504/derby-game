@@ -53,6 +53,24 @@ const CAR_TYPES := {
 		"wheel_radius": 0.95, "wheel_width": 0.75, "wheel_y": -0.9, "wheel_z": 0.36,
 		"travel": 0.55, "stiffness": 24.0, "grip": 3.2, "com_y": -1.0, "cornering": 3.8,
 	},
+	"super": {
+		"label": "Vortex", "style": "super", "mass": 1350.0, "engine": 5200.0, "top_speed": 36.0,
+		"steer": 0.41, "health": 85.0, "size": Vector3(2.05, 0.9, 4.6),
+		"wheel_radius": 0.37, "wheel_width": 0.36, "wheel_y": -0.3, "wheel_z": 0.33,
+		"travel": 0.18, "stiffness": 58.0, "grip": 3.1, "com_y": -0.35, "cornering": 6.4,
+	},
+	"police": {
+		"label": "Interceptor", "style": "police", "mass": 1600.0, "engine": 5300.0, "top_speed": 31.0,
+		"steer": 0.45, "health": 125.0, "size": Vector3(1.95, 1.45, 4.9),
+		"wheel_radius": 0.37, "wheel_width": 0.29, "wheel_y": -0.5, "wheel_z": 0.31,
+		"travel": 0.24, "stiffness": 45.0, "grip": 2.9, "com_y": -0.55, "cornering": 5.3,
+	},
+	"hatch": {
+		"label": "Pocket", "style": "hatch", "mass": 1000.0, "engine": 3900.0, "top_speed": 28.0,
+		"steer": 0.52, "health": 80.0, "size": Vector3(1.75, 1.4, 3.7),
+		"wheel_radius": 0.33, "wheel_width": 0.25, "wheel_y": -0.5, "wheel_z": 0.32,
+		"travel": 0.25, "stiffness": 44.0, "grip": 3.1, "com_y": -0.55, "cornering": 5.8,
+	},
 }
 
 const BODY_COLORS := [

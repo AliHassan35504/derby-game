@@ -16,15 +16,19 @@ BODY = dict(
 	z=(-2.3, 2.3),
 	yt=[(-2.3, 0.58), (-2.27, 0.74), (-2.2, 0.8), (-2.0, 0.82), (0.5, 0.83), (1.28, 0.82), (1.36, 0.79),
 		(1.68, 0.21), (1.76, 0.15), (2.05, 0.09), (2.22, 0.03), (2.3, -0.08)],
-	yb=[(-2.3, -0.6), (-2.24, -0.8), (-2.0, -0.88), (2.0, -0.88), (2.24, -0.8), (2.3, -0.6)],
-	ym=[(-2.3, -0.3), (0.0, -0.3), (2.3, -0.32)],
+	yb=[(-2.3, -0.62), (-2.24, -0.84), (-2.0, -0.94), (2.0, -0.94), (2.24, -0.84), (2.3, -0.62)],
+	ysl=[(-2.3, -0.56), (-2.0, -0.82), (2.0, -0.82), (2.3, -0.56)],
+	ym=[(-2.3, -0.42), (0.0, -0.45), (2.3, -0.45)],
 	ys=[(-2.3, 0.08), (-2.2, 0.14), (1.3, 0.16), (1.66, 0.13), (2.1, 0.06), (2.3, -0.12)],
 	w=[(-2.3, 1.03), (-2.0, 1.05), (1.5, 1.05), (2.3, 1.02)],
 	wsh=[(-2.3, 1.02), (-2.0, 1.04), (1.5, 1.04), (2.3, 1.01)],
 	wg=[(-2.3, 1.01), (-2.1, 1.0), (1.55, 1.0), (1.72, 1.03), (2.3, 1.0)],
 	wr=[(-2.3, 0.93), (-2.1, 0.94), (1.3, 0.94), (1.7, 0.97), (2.3, 0.95)],
-	nb=5.0,
+	tuck=0.03,
+	rb=0.06,
 	nu=[(-2.3, 4.5), (1.6, 4.5), (1.75, 3.2)],
+	fenders=[dict(z=1.518, y=-0.93, r0=0.52, r1=0.82, amount=0.04, top=-0.3, top_w=0.25, kz=0.85),
+		dict(z=-1.518, y=-0.93, r0=0.52, r1=0.82, amount=0.04, top=-0.3, top_w=0.25, kz=0.85)],
 	cr=0.14,
 	bulge=0.0,
 	ledge_h=0.02,
@@ -55,8 +59,9 @@ def build():
 	cb.grille(parts.rect(0.94, 0.26), hit, Vector((0, 0, 1)), "bars", "Chrome", 7, 0.07, 0.01, reveal="Chrome", round_r=0.03)
 	for x in (0.73,):
 		hit, nrm = b.front_point(x, -0.18)
-		cb.lamp(parts.ellipse(0.105, 0.105, 24), hit, (nrm + Vector((0, 0, 1))).normalized(), "Glass",
-			[("bulb", (0.0, 0.0), 0.05, "Headlight")], depth=0.06, reveal="Chrome", housing="Chrome")
+		cb.lamp(parts.ellipse(0.105, 0.105, 24), hit, (nrm + Vector((0, 0, 1))).normalized(), "HeadLens",
+			[("bulb", (0.0, 0.0), 0.045, "Headlight"), ("outline", (0.0, 1.0), (0.01, 0.014), "Chrome")], depth=0.06, reveal="Chrome", housing="Chrome",
+			marker="Headlight")
 	for x in (0.73,):
 		hit, nrm = b.front_point(x, -0.38)
 		cb.lamp(parts.rect(0.14, 0.06), hit, (nrm + Vector((0, 0, 1))).normalized(), "Indicator", [], depth=0.03, reveal="Chrome", housing="Chrome", round_r=0.01)
@@ -66,8 +71,9 @@ def build():
 	# --- rear: tail lights, back doors, spare wheel, ladder, chrome bumper
 	for x in (0.93,):
 		hit, nrm = b.front_point(x, -0.2, front=False)
-		cb.lamp(parts.rect(0.11, 0.36), hit, (nrm + Vector((0, 0, -1))).normalized(), "Taillight",
-			[("bar", (0.0, 0.05), (0.08, 0.2), "Taillight")], depth=0.04, reveal="Chrome", housing="Chrome", back_mat="Taillight", round_r=0.015)
+		cb.lamp(parts.rect(0.11, 0.36), hit, (nrm + Vector((0, 0, -1))).normalized(), "TailLens",
+			[("bar", (0.0, 0.05), (0.08, 0.2), "Taillight"), ("bar", (0.0, -0.13), (0.08, 0.06), "Chrome")], depth=0.04, reveal="Chrome", housing="Chrome",
+			back_mat="Trim", round_r=0.015, marker="Taillight")
 	cb.bumper(False, -0.66, -0.52, kind="blade", mat="Chrome", theta=72.0, back=0.5, gap=0.03, thick=0.07)
 	cb.plate(b.front_point(0.0, -0.42, front=False)[0] + Vector((0, 0, -0.008)), (0, 0, -1), "GRV 76", size=(0.5, 0.12))
 	cb.gap_dir([(0.0, 0.7, -2.4), (0.0, -0.78, -2.4)], (0, 0, 1))
@@ -111,7 +117,14 @@ def build():
 	cb.gap_side([(0.78, 0.74), (0.78, door_bot)])
 	cb.gap_side([(-0.15, 0.74), (-0.15, door_bot), (0.78, door_bot)], both=False)
 	cb.gap_side([(0.78, 0.74), (-0.15, 0.74)], both=False)
-	cb.gap_top([(-0.94, 1.72), (-0.95, 2.2), (0.95, 2.2), (0.94, 1.72), (-0.94, 1.72)], n=60)
+	cb.gap_top([(-0.94, 2.16), (-0.94, 1.72), (0.94, 1.72), (0.94, 2.16)], n=60)
+	cb.gap_dir([(-0.94, -0.03, 2.8), (0.94, -0.03, 2.8)], (0, 0, -1))
+	cb.panel_box("Part_Hood", -0.94, 0.94, -0.03, 1.0, 1.72, 2.8)
+	cb.panel_box("Part_BumperFront", -1.3, 1.3, -1.2, -0.3, 2.33, 2.9)
+	cb.panel_box("Part_BumperRear", -1.3, 1.3, -1.2, -0.3, -2.9, -2.32)
+	for name, sx in (("Part_DoorL", 1.0), ("Part_DoorR", -1.0)):
+		x0, x1 = (0.8, 1.4) if sx > 0 else (-1.4, -0.8)
+		cb.panel_box(name, x0, x1, door_bot, 0.15, 0.84, 1.66)
 	cb.mirror(1.55, 0.28, out=0.1, rise=0.1, size=(0.09, 0.13, 0.04), mat="Chrome", arm_mat="Chrome")
 	cb.handle(0.97, 0.06, 0.14)
 	cb.wipers(ws, [0.36, -0.3], 0.55, 5.0)

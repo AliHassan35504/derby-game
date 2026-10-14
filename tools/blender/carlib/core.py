@@ -153,7 +153,7 @@ def round_polygon(poly, radius, steps=4):
 
 MATERIAL_LOOKS = {
 	# name: (base colour, metallic, roughness, extra)
-	"Paint": ((0.75, 0.06, 0.05), 0.4, 0.28, {"coat": 1.0}),
+	"Paint": ((0.75, 0.06, 0.05), 0.55, 0.38, {"coat": 1.0}),
 	"Glass": ((0.22, 0.26, 0.27), 0.0, 0.02, {"transmission": 1.0, "alpha": 1.0}),
 	"Chrome": ((0.92, 0.92, 0.94), 1.0, 0.07, {}),
 	"Trim": ((0.025, 0.025, 0.028), 0.0, 0.45, {}),
@@ -161,6 +161,11 @@ MATERIAL_LOOKS = {
 	"Headlight": ((0.95, 0.95, 0.92), 0.0, 0.2, {"emission": (1.0, 0.97, 0.9), "strength": 3.0}),
 	"Taillight": ((0.55, 0.02, 0.02), 0.0, 0.15, {"emission": (1.0, 0.04, 0.02), "strength": 2.0}),
 	"Indicator": ((0.9, 0.42, 0.04), 0.0, 0.15, {"emission": (1.0, 0.45, 0.05), "strength": 0.6}),
+	"HeadLens": ((0.95, 0.96, 0.97), 0.0, 0.02, {"transmission": 1.0}),
+	"TailLens": ((0.7, 0.03, 0.03), 0.0, 0.04, {"transmission": 0.85, "emission": (1.0, 0.05, 0.03), "strength": 0.3}),
+	"LightbarRed": ((0.8, 0.03, 0.03), 0.0, 0.1, {"emission": (1.0, 0.03, 0.02), "strength": 4.0}),
+	"LightbarBlue": ((0.03, 0.08, 0.8), 0.0, 0.1, {"emission": (0.05, 0.2, 1.0), "strength": 4.0}),
+	"Seat": ((0.16, 0.15, 0.14), 0.0, 0.75, {}),
 	"Interior": ((0.11, 0.1, 0.095), 0.0, 0.8, {}),
 	"Tyre": ((0.03, 0.03, 0.03), 0.0, 0.88, {}),
 	"Rim": ((0.62, 0.63, 0.65), 1.0, 0.22, {}),
@@ -201,8 +206,8 @@ def material(name):
 	return mat
 
 
-def set_paint_colour(rgb):
-	mat = material("Paint")
+def set_paint_colour(rgb, name="Paint"):
+	mat = material(name)
 	mat.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (*rgb, 1.0)
 	mat.diffuse_color = (*rgb, 1.0)
 

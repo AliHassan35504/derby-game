@@ -25,6 +25,9 @@ class CarBuilder:
 		self.glass = []
 		self.markers = {}
 		self.shells = []
+		self.panel_specs = []
+		self.panel_objs = []
+		self.arches = []
 		self.body = None
 		if body_spec:
 			self.body = self.add_shell(body_spec)
@@ -71,6 +74,7 @@ class CarBuilder:
 		b = shell or self.body
 		if x_in is None:
 			x_in = self.wheel["x"] - self.wheel["w"] * 0.7
+		self.arches.append((z, y, radius * max(1.0, squash) + (flare.get("width", 0.08) if flare else 0.0)))
 		cut = parts.arch_cutter(x_in, y, z, radius, 1.0, squash, n_exp, reveal="Underbody")
 		self.cut(cut, b, mirror=both)
 		if tub:
@@ -116,8 +120,8 @@ class CarBuilder:
 		a0, a1 = fl.get("angles", (-12.0, 192.0))
 		for side in (1.0, -1.0):
 			samples = []
-			for i in range(48):
-				t = math.radians(lerp(a0, a1, i / 47))
+			for i in range(32):
+				t = math.radians(lerp(a0, a1, i / 31))
 				zz, yy = self._arch_point(y, z, r + width * 0.5, squash, n_exp, t)
 				hit, nrm = b.side_point(yy, zz, side)
 				if hit is None:
@@ -170,11 +174,18 @@ class CarBuilder:
 
 	# -- lights -------------------------------------------------------------------
 
-	def lamp(self, poly2d, centre, normal, lens="Glass", emitters=(), depth=0.07, reveal="Chrome", housing="Chrome", round_r=0.0, mirror=True, cut_depth=0.18, lens_inset=0.003, back_mat=None, shell=None, up=(0, 1, 0)):
-		"""A light: hole in the shell, reflector housing with emitters, lens patch."""
+	def lamp(self, poly2d, centre, normal, lens="HeadLens", emitters=(), depth=0.07, reveal="Chrome", housing="Chrome", round_r=0.0, mirror=True, cut_depth=0.18, lens_inset=0.003, back_mat=None, shell=None, up=(0, 1, 0), marker=None):
+		"""A light: hole in the shell, reflector housing with emitters, lens patch.
+		lens is HeadLens (clear) or TailLens (red) so the game can light them up.
+		marker names empties at the lens centre (<marker>_L / _R) for lamps."""
 		b = shell or self.body
 		cut = parts.flat_cutter(poly2d, centre, normal, cut_depth, up=up, round_r=round_r, reveal=reveal, name="lamp")
 		c, m = self.cut(cut, b, mirror=mirror)
+		if marker:
+			p0 = Vector(centre)
+			self.markers[marker + ("_L" if p0.x >= 0 else "_R")] = p0.copy()
+			if m is not None:
+				self.markers[marker + ("_R" if p0.x >= 0 else "_L")] = Vector((-p0.x, p0.y, p0.z))
 		for cc in (c, m):
 			if cc is None:
 				continue
@@ -224,14 +235,14 @@ class CarBuilder:
 			s = parts.project_dir(b, [Vector((-p.x, p.y, p.z)) for p in pts], Vector((-d.x, d.y, d.z)))
 			self.add(parts.ribbon(s, width, mat))
 
-	def strip_side(self, pts_zy, width, height, mat="Chrome", n=60, shell=None, both=True):
+	def strip_side(self, pts_zy, width, height, mat="Chrome", n=40, shell=None, both=True, steps=3):
 		b = shell or self.body
 		pts = parts.polyline([Vector(p) for p in pts_zy], n)
 		for side in ((1.0, -1.0) if both else (1.0,)):
 			s = parts.project_side(b, pts, side, 0.0)
-			self.add(parts.raised_strip(s, width, height, mat))
+			self.add(parts.raised_strip(s, width, height, mat, steps=steps))
 
-	def stripe_side(self, pts_zy_loop, mat="Decal", lift=0.002, both=True, shell=None, n=80):
+	def stripe_side(self, pts_zy_loop, mat="Decal", lift=0.002, both=True, shell=None, n=80, nv=4):
 		"""A painted stripe: a band between two side-view polylines (top, bottom)."""
 		b = shell or self.body
 		top, bottom = pts_zy_loop
@@ -240,10 +251,16 @@ class CarBuilder:
 		for side in ((1.0, -1.0) if both else (1.0,)):
 			rows = []
 			for (zt, yt), (zb, yb) in zip(top, bottom):
+				if any(math.hypot(zz - az, yy - ay) < ar + 0.025 for az, ay, ar in self.arches for zz, yy in ((zt, yt), (zb, yb))):
+					# Over a wheel arch: leave a break in the stripe.
+					if rows:
+						self._stripe_rows(rows, mat, side)
+						rows = []
+					continue
 				col = []
-				for k in range(4):
-					y = lerp(yb, yt, k / 3)
-					z = lerp(zb, zt, k / 3)
+				for k in range(nv):
+					y = lerp(yb, yt, k / (nv - 1))
+					z = lerp(zb, zt, k / (nv - 1))
 					hit, nrm = b.side_point(y, z, side)
 					if hit is None:
 						col = None
@@ -251,14 +268,20 @@ class CarBuilder:
 					col.append(hit + nrm * lift)
 				if col:
 					rows.append(col)
-			mb = MeshBuilder()
-			mb.grid(rows, mat)
-			if mb.faces:
-				f = mb.faces[len(mb.faces) // 2]
-				a_, b_, c_ = (Vector(mb.verts[f[q]]) for q in range(3))
-				if (b_ - a_).cross(c_ - a_).x * side < 0:
-					mb.faces = [tuple(reversed(ff)) for ff in mb.faces]
-			self.add(mb)
+			if rows:
+				self._stripe_rows(rows, mat, side)
+
+	def _stripe_rows(self, rows, mat, side):
+		if len(rows) < 2:
+			return
+		mb = MeshBuilder()
+		mb.grid(rows, mat)
+		if mb.faces:
+			f = mb.faces[len(mb.faces) // 2]
+			a_, b_, c_ = (Vector(mb.verts[f[q]]) for q in range(3))
+			if (b_ - a_).cross(c_ - a_).x * side < 0:
+				mb.faces = [tuple(reversed(ff)) for ff in mb.faces]
+		self.add(mb)
 
 	def stripe_top(self, xs, z0, z1, mat="Decal", lift=0.002, n=60, shell=None):
 		"""A painted stripe over the top between x-range xs=(x0, x1), z0..z1."""
@@ -358,7 +381,7 @@ class CarBuilder:
 		self.add(mb)
 		return rows
 
-	def spotlamp(self, centre, normal=(0, 0, 1), r=0.09, depth=0.09, housing="Trim", lens="Headlight", bezel="Chrome"):
+	def spotlamp(self, centre, normal=(0, 0, 1), r=0.09, depth=0.09, housing="Trim", lens="Headlight", bezel="Chrome", guard=True):
 		"""Round auxiliary lamp pod (rally spot light, roof light bar lamp)."""
 		c = Vector(centre)
 		n = Vector(normal).normalized()
@@ -385,7 +408,7 @@ class CarBuilder:
 			mb.faces = [tuple(reversed(ff)) for ff in mb.faces]
 		self.add(mb)
 		# Cross-hair guard, very rally.
-		for t in (0.0, math.pi * 0.5):
+		for t in ((0.0, math.pi * 0.5) if guard else ()):
 			d = u * math.cos(t) + v * math.sin(t)
 			self.add(core.cylinder(c + n * (r * 0.2) - d * r * 0.9, c + n * (r * 0.2) + d * r * 0.9, 0.005, 0.005, 6, "Trim", caps=False))
 
@@ -436,20 +459,20 @@ class CarBuilder:
 			xx = lerp(-x * 0.85, x * 0.85, k / max(1, ribs - 1))
 			self.add(core.superquadric((xx, y_floor + 0.006, (z0 + z1) * 0.5), (0.025, 0.012, (z1 - z0) * 0.49), 0.3, 0.6, 8, 4, rib_mat))
 
-	def interior(self, dash_z, dash_y, half_w, seat_z, seat_y, seat_x=0.38, rear_z=None, rear_w=None, floor_y=None, wheel_x=0.38, seats=2, mat="Interior", bench_front=False):
+	def interior(self, dash_z, dash_y, half_w, seat_z, seat_y, seat_x=0.38, rear_z=None, rear_w=None, floor_y=None, wheel_x=0.38, seats=2, mat="Interior", bench_front=False, seat_mat="Seat"):
 		"""Dashboard, steering wheel, seats and console."""
 		self.dashboard(dash_z, dash_y, half_w, wheel_x=wheel_x, mat=mat)
 		if bench_front:
-			self.seat(0.0, seat_y, seat_z, width=half_w * 1.7, mat=mat, bench=True)
+			self.seat(0.0, seat_y, seat_z, width=half_w * 1.7, mat=seat_mat, bench=True)
 		else:
 			for sx in (seat_x, -seat_x):
-				self.seat(sx, seat_y, seat_z, mat=mat)
+				self.seat(sx, seat_y, seat_z, mat=seat_mat)
 				if floor_y is not None:
 					self.add(core.box((sx, (floor_y + seat_y - 0.1) * 0.5, seat_z - 0.25), (0.2, max(0.02, (seat_y - 0.1 - floor_y) * 0.5), 0.2), "Trim"))
 			if floor_y is not None:
 				self.console(seat_z - 0.45, dash_z + 0.05, floor_y, seat_y + 0.05, 0.09, mat)
 		if rear_z is not None:
-			self.seat(0.0, seat_y + 0.02, rear_z, width=rear_w or half_w * 1.6, mat=mat, bench=True, recline=22.0)
+			self.seat(0.0, seat_y + 0.02, rear_z, width=rear_w or half_w * 1.6, mat=seat_mat, bench=True, recline=22.0)
 
 	def underbody(self, y, z0, z1, rail_x=0.5, exhaust_x=-0.3, exhaust_z1=None, tank_z=None, axle_y=None, axle_z=(), axle_x=0.7, diff_z=None, muffler_z=None):
 		"""Simple chassis below the floor so the car is not hollow from low angles."""
@@ -516,17 +539,50 @@ class CarBuilder:
 			self.add(core.prism(outer, c, u, v, n, -0.004, 0.004, "Trim"))
 		self.add(core.text_mesh(text, h * 0.62, 0.003, "Trim", c + n * 0.006 + v * (-h * 0.02), u, v, n))
 
-	def exhaust(self, x, y, z, r=0.04, length=0.25, mat="Chrome", angle=0.0, dual=False, spacing=0.11, inner="Gap", name="Exhaust"):
-		"""Exhaust tip(s) pointing backwards (-z). Adds a marker for nitro flames."""
+	def exhaust(self, x, y, z, r=0.04, length=0.25, mat="Chrome", angle=0.0, dual=False, spacing=0.11, inner="Gap", name="Exhaust", shape="round"):
+		"""Exhaust tip(s) pointing backwards (-z). Adds a marker for nitro flames.
+		shape "oval" or "square" makes a wide tip set in the bumper."""
 		xs = [x - spacing / 2, x + spacing / 2] if dual else [x]
 		for i, xx in enumerate(xs):
 			tip = Vector((xx, y, z))
 			back = tip + Vector((0, math.sin(angle) * length, length))
+			if shape != "round":
+				ax, ay = (r * 1.7, r * 0.85)
+				e = 2.0 if shape == "oval" else 5.0
+				outer = [(ax * core.spow(math.cos(t), 2.0 / e), ay * core.spow(math.sin(t), 2.0 / e)) for t in [2 * math.pi * k / 24 for k in range(24)]]
+				inner_p = [(u * 0.84, v * 0.76) for u, v in outer]
+				self.add(core.sweep([back, tip], outer, mat, ups=[(0, 1, 0), (0, 1, 0)]))
+				# Rolled lip from the outer skin into the dark pipe.
+				lip = MeshBuilder()
+				ro = [tip + Vector((-u, v, 0)) for u, v in outer]
+				ri = [tip + Vector((-u, v, 0.004)) for u, v in inner_p]
+				lip.grid([ro, ri], mat, close_v=True)
+				self.add(lip)
+				self.add(core.sweep([tip + Vector((0, 0, 0.004)), tip + Vector((0, 0, 0.06))], inner_p, inner, ups=[(0, 1, 0), (0, 1, 0)], caps=True))
+				continue
 			self.add(core.cylinder(back, tip, r, r * 1.05, 18, mat, caps=False))
 			# Rolled lip and dark inside.
 			self.add(core.cylinder(tip + Vector((0, 0, 0.002)), tip + Vector((0, 0, 0.03)), r * 0.86, r * 0.86, 18, inner, caps=False))
 			self.add(core.cylinder(tip + Vector((0, 0, 0.03)), tip + Vector((0, 0, 0.031)), r * 0.86, r * 0.86, 18, inner, caps=True))
 		self.markers["%s_%d" % (name, len([k for k in self.markers if k.startswith(name)]))] = Vector((x, y, z - 0.02))
+
+	def engine_bay(self, z0, z1, y_floor, y_top, half_w):
+		"""Engine, radiator and bits under the bonnet, seen if it is torn off."""
+		zc = (z0 + z1) * 0.5
+		hz = (z1 - z0) * 0.5
+		h = y_top - y_floor
+		# Engine block with two cam covers and an intake plenum.
+		self.add(core.superquadric((0.0, y_floor + h * 0.35, zc - hz * 0.15), (half_w * 0.45, h * 0.32, hz * 0.55), 0.25, 0.25, 12, 6, "Brake"))
+		for sx in (1.0, -1.0):
+			self.add(core.superquadric((sx * half_w * 0.25, y_floor + h * 0.7, zc - hz * 0.15), (half_w * 0.12, h * 0.08, hz * 0.5), 0.3, 0.3, 10, 4, "Trim"))
+		self.add(core.superquadric((0.0, y_floor + h * 0.78, zc - hz * 0.1), (half_w * 0.16, h * 0.09, hz * 0.32), 0.3, 0.3, 10, 4, "Chrome"))
+		# Radiator across the front, airbox and battery at the sides.
+		self.add(core.box((0.0, y_floor + h * 0.45, z1), (half_w * 0.85, h * 0.4, 0.03), "Trim"))
+		self.add(core.superquadric((half_w * 0.72, y_floor + h * 0.62, zc + hz * 0.3), (half_w * 0.16, h * 0.14, hz * 0.25), 0.4, 0.4, 10, 6, "Underbody"))
+		self.add(core.box((-half_w * 0.72, y_floor + h * 0.55, zc + hz * 0.25), (half_w * 0.13, h * 0.12, hz * 0.18), "Trim"))
+		# Strut towers.
+		for sx in (1.0, -1.0):
+			self.add(core.cylinder((sx * half_w * 0.86, y_floor, zc - hz * 0.3), (sx * half_w * 0.86, y_top - 0.02, zc - hz * 0.3), 0.06, 0.05, 10, "Underbody"))
 
 	def wipers(self, ws_cutter, pivots, length=0.5, angle=12.0, mat="Trim"):
 		"""Wiper arms lying on the windscreen glass. pivots: list of x at the base."""
@@ -638,9 +694,115 @@ class CarBuilder:
 			else:
 				part_objs.append(mb)
 		body = core.join(shell_objs + lens_objs + part_objs + self.objects, "Body")
-		me = body.data
-		me.shade_smooth()
-		me.set_sharp_from_angle(angle=math.radians(38.0))
+		self._mark_sharp(body)
 		for g in glass:
 			g.data.shade_smooth()
+		self.panel_objs = []
+		for name, planes, bbox in self.panel_specs:
+			obj = self._split_panel(body, name, planes, bbox)
+			if obj is not None:
+				self.panel_objs.append(obj)
 		return body, glass, dict(self.markers)
+
+	def _mark_sharp(self, body, angle=38.0, crease_angle=7.0):
+		"""Smooth shading with hard edges above angle, plus the shells' character
+		lines (shoulder crease, sill) wherever they bend more than crease_angle."""
+		me = body.data
+		me.shade_smooth()
+		paint = {i for i, m in enumerate(me.materials) if m and m.name.split(".")[0] in ("Paint", "Decal", "Livery")}
+		bm = bmesh.new()
+		bm.from_mesh(me)
+		lim = math.radians(angle)
+		clim = math.radians(crease_angle)
+		for e in bm.edges:
+			if len(e.link_faces) != 2:
+				e.smooth = False
+				continue
+			a = e.calc_face_angle(0.0)
+			sharp = a > lim
+			if not sharp and a > clim and all(f.material_index in paint for f in e.link_faces):
+				mid = (e.verts[0].co + e.verts[1].co) * 0.5
+				sharp = any(b.is_crease(mid) for b in self.shells)
+			e.smooth = not sharp
+		bm.to_mesh(me)
+		bm.free()
+		me.update()
+
+	# -- detachable panels ----------------------------------------------------
+
+	def panel(self, name, planes, bbox):
+		"""Register a detachable panel: every face of the finished body whose
+		centre lies inside bbox ((x0, y0, z0), (x1, y1, z1)) and on the positive
+		side of every plane (point, normal) is split off into its own object.
+		The body is bisected along the planes first so the edges are clean."""
+		self.panel_specs.append((name, [(Vector(p), Vector(n).normalized()) for p, n in planes], (Vector(bbox[0]), Vector(bbox[1]))))
+
+	def panel_box(self, name, x0, x1, y0, y1, z0, z1, extra=()):
+		planes = [((x0, 0, 0), (1, 0, 0)), ((x1, 0, 0), (-1, 0, 0)), ((0, y0, 0), (0, 1, 0)), ((0, y1, 0), (0, -1, 0)),
+			((0, 0, z0), (0, 0, 1)), ((0, 0, z1), (0, 0, -1))] + list(extra)
+		self.panel(name, planes, ((x0, y0, z0), (x1, y1, z1)))
+
+	def _split_panel(self, body, name, planes, bbox):
+		me = body.data
+		bm = bmesh.new()
+		bm.from_mesh(me)
+		lo, hi = bbox
+		pad = Vector((0.03, 0.03, 0.03))
+
+		def near(f):
+			c = f.calc_center_median()
+			return all(lo[k] - pad[k] <= c[k] <= hi[k] + pad[k] for k in range(3))
+
+		for co, no in planes:
+			faces = [f for f in bm.faces if near(f)]
+			if not faces:
+				break
+			edges = list({e for f in faces for e in f.edges})
+			verts = list({v for f in faces for v in f.verts})
+			bmesh.ops.bisect_plane(bm, geom=faces + edges + verts, plane_co=co, plane_no=no, dist=0.0005)
+
+		def inside(f):
+			c = f.calc_center_median()
+			if not all(lo[k] <= c[k] <= hi[k] for k in range(3)):
+				return False
+			return all((c - co).dot(no) >= 0.0 for co, no in planes)
+
+		take = [f for f in bm.faces if inside(f)]
+		if not take:
+			bm.free()
+			return None
+		# Copy the faces into a new mesh, then remove them from the body.
+		bm.verts.index_update()
+		verts, faces, fmats, fsmooth = [], [], [], []
+		vmap = {}
+		for f in take:
+			ids = []
+			for v in f.verts:
+				if v.index not in vmap:
+					vmap[v.index] = len(verts)
+					verts.append(tuple(v.co))
+				ids.append(vmap[v.index])
+			faces.append(tuple(ids))
+			fmats.append(me.materials[f.material_index].name.split(".")[0])
+			fsmooth.append(f.smooth)
+		sharp_pairs = set()
+		for f in take:
+			for e in f.edges:
+				if not e.smooth:
+					sharp_pairs.add(frozenset(vmap[v.index] for v in e.verts if v.index in vmap))
+		bmesh.ops.delete(bm, geom=take, context="FACES")
+		bm.to_mesh(me)
+		bm.free()
+		me.update()
+		obj = core.make_object(name, verts, faces, fmats, fsmooth)
+		pm = obj.data
+		pm.shade_smooth()
+		pb = bmesh.new()
+		pb.from_mesh(pm)
+		for e in pb.edges:
+			if frozenset(v.index for v in e.verts) in sharp_pairs or len(e.link_faces) != 2:
+				e.smooth = False
+		pb.to_mesh(pm)
+		pb.free()
+		pm.update()
+		return obj

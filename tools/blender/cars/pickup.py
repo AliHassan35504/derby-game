@@ -20,7 +20,8 @@ CAB = dict(
 	wsh=[(-0.64, 1.03), (-0.5, 1.04), (2.2, 1.04), (2.6, 1.02)],
 	wg=[(-0.64, 0.99), (-0.5, 0.985), (1.2, 0.985), (1.36, 1.03), (2.6, 1.01)],
 	wr=[(-0.64, 0.9), (-0.5, 0.9), (0.8, 0.9), (1.3, 0.96), (2.6, 0.96)],
-	nb=5.0,
+	tuck=0.025,
+	rb=0.06,
 	nu=[(-0.6, 4.0), (1.2, 4.0), (1.4, 4.5)],
 	cr=0.13,
 	bulge=0.01,
@@ -41,7 +42,8 @@ BED = dict(
 	wsh=1.045,
 	wg=1.04,
 	wr=1.0,
-	nb=5.0,
+	tuck=0.025,
+	rb=0.06,
 	nu=4.0,
 	cr=0.04,
 	bulge=0.0,
@@ -78,12 +80,12 @@ def build():
 
 	# --- front: big grille, headlights, steel bumper, fog lamps
 	hit, nrm = cab.front_point(0.0, -0.06)
-	cb.grille(parts.rect(1.18, 0.42), hit, Vector((0, 0, 1)), "egg", "Chrome", 4, 0.08, 0.016, reveal="Chrome", round_r=0.05)
+	cb.grille(parts.rect(1.18, 0.42), hit, Vector((0, 0, 1)), "bars", "Chrome", 6, 0.08, 0.016, vertical=1, reveal="Chrome", round_r=0.05)
 	for x in (0.83,):
 		hit, nrm = cab.front_point(x, 0.06)
-		cb.lamp([(-0.14, -0.1), (0.15, -0.1), (0.17, 0.0), (0.15, 0.1), (-0.14, 0.1)], hit, (nrm + Vector((0, 0, 1))).normalized(), "Glass",
+		cb.lamp([(-0.14, -0.1), (0.15, -0.1), (0.17, 0.0), (0.15, 0.1), (-0.14, 0.1)], hit, (nrm + Vector((0, 0, 1))).normalized(), "HeadLens",
 			[("disc", (-0.04, 0.02), 0.055, "Headlight"), ("bar", (0.05, -0.065), (0.2, 0.025), "Indicator")],
-			depth=0.08, reveal="Chrome", housing="Chrome", back_mat="Trim", round_r=0.03)
+			depth=0.08, reveal="Chrome", housing="Chrome", back_mat="Trim", round_r=0.03, marker="Headlight")
 	cb.bumper(True, -0.62, -0.38, kind="blade", mat="Trim", theta=70.0, back=0.6, gap=0.03, thick=0.1)
 	for x in (0.72, -0.72):
 		cb.spotlamp((x, -0.5, cab.z1 + 0.14), (0, 0, 1), 0.055, 0.05)
@@ -94,9 +96,9 @@ def build():
 	# --- rear: vertical tail lights on the bed, tailgate, step bumper, hitch
 	for x in (0.97,):
 		hit, nrm = bed.front_point(x, 0.0, front=False)
-		cb.lamp(parts.rect(0.12, 0.4), hit, (nrm + Vector((0, 0, -1.2))).normalized(), "Taillight",
+		cb.lamp(parts.rect(0.12, 0.4), hit, (nrm + Vector((0, 0, -1.2))).normalized(), "TailLens",
 			[("bar", (0.0, 0.08), (0.08, 0.18), "Taillight"), ("bar", (0.0, -0.12), (0.08, 0.1), "Chrome")],
-			depth=0.04, reveal="Chrome", housing="Chrome", back_mat="Taillight", round_r=0.015, shell=bed)
+			depth=0.04, reveal="Chrome", housing="Chrome", back_mat="Trim", round_r=0.015, shell=bed, marker="Taillight")
 	cb.gap_dir([(-0.86, 0.28, -2.7), (-0.86, -0.56, -2.7), (0.86, -0.56, -2.7), (0.86, 0.28, -2.7)], (0, 0, 1), shell=bed, n=60)
 	cb.add(core.superquadric((0.0, 0.05, -2.615), (0.1, 0.04, 0.01), 0.3, 0.3, 8, 4, "Trim"))
 	cb.bumper(False, -0.66, -0.48, kind="blade", mat="Chrome", theta=60.0, back=0.5, gap=0.03, thick=0.08, shell=bed)
@@ -110,6 +112,12 @@ def build():
 	cb.gap_side([(1.3, 0.27), (1.3, door_bot), (-0.56, door_bot), (-0.56, 0.3)], shell=cab, n=80)
 	cb.gap_side([(0.08, 0.31), (0.08, door_bot)], shell=cab)
 	cb.gap_top([(-0.92, 1.36), (-0.94, 2.45), (0.94, 2.45), (0.92, 1.36), (-0.92, 1.36)], shell=cab, n=80)
+	cb.panel_box("Part_Hood", -0.94, 0.94, 0.15, 1.2, 1.36, 2.45)
+	cb.panel_box("Part_BumperFront", -1.3, 1.3, -1.2, -0.25, 2.62, 3.1)
+	cb.panel_box("Part_BumperRear", -1.3, 1.3, -1.2, -0.3, -3.1, -2.62)
+	for name, sx in (("Part_DoorL", 1.0), ("Part_DoorR", -1.0)):
+		x0, x1 = (0.85, 1.4) if sx > 0 else (-1.4, -0.85)
+		cb.panel_box(name, x0, x1, door_bot, 0.29, 0.08, 1.3)
 	for k in range(5):
 		x = lerp(-0.45, 0.45, k / 4)
 		top, _ = cab.top_point(x, 0.66)
@@ -125,6 +133,7 @@ def build():
 	cb.strip_side([(-0.55, -0.55), (1.28, -0.55)], 0.04, 0.008, "Trim", shell=cab)
 
 	# --- inside and underneath
+	cb.engine_bay(1.5, 2.45, -0.75, 0.15, 0.8)
 	cb.interior(1.08, 0.18, 0.9, 0.42, -0.2, 0.45, rear_z=-0.18, rear_w=1.6, floor_y=-0.75, wheel_x=0.45)
 	cb.underbody(-0.83, -2.4, 2.3, 0.55, -0.5, -2.3, tank_z=-0.3, axle_y=wy, axle_z=(wz, -wz), axle_x=0.78, diff_z=-wz, muffler_z=-1.2)
 	return cb

@@ -28,16 +28,21 @@ ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 OUT_DIR = os.path.join(ROOT, "assets", "cars")
 PREVIEW_DIR = "/tmp/claude-0/car-previews"
 
-STYLES = ["van", "sports", "sedan", "pickup", "muscle", "rally", "monster"]
+STYLES = ["van", "sports", "sedan", "pickup", "muscle", "rally", "monster", "super", "police", "hatch"]
 # Settled ride height: distance from the body origin down to the road, as
 # measured in Godot with the car resting on flat ground.
-GROUND = {"van": -1.368, "sports": -0.806, "sedan": -1.017, "pickup": -1.378, "muscle": -0.936, "rally": -1.046, "monster": -2.233}
+GROUND = {"van": -1.368, "sports": -0.806, "sedan": -1.017, "pickup": -1.378, "muscle": -0.936, "rally": -1.046, "monster": -2.233,
+	"super": -0.779, "police": -1.022, "hatch": -0.992}
 # Preview camera distance scale and target height shift for tall vehicles.
 PREVIEW_FRAMING = {"monster": (1.3, -0.55)}
 PREVIEW_COLOURS = {
 	"van": (0.62, 0.22, 0.05), "sports": (0.75, 0.04, 0.03), "sedan": (0.06, 0.16, 0.45), "pickup": (0.5, 0.52, 0.5),
 	"muscle": (0.85, 0.5, 0.02), "rally": (0.03, 0.22, 0.6), "monster": (0.08, 0.35, 0.12),
+	"super": (0.9, 0.42, 0.02), "police": (0.02, 0.02, 0.025), "hatch": (0.55, 0.62, 0.05),
 }
+
+# Livery/decal colours the game picks per car (CarVisuals.build_body).
+PREVIEW_DECALS = {"police": {"Livery": (0.85, 0.85, 0.83), "Decal": (0.03, 0.03, 0.035)}}
 
 
 def reset():
@@ -49,7 +54,7 @@ def build_style(style):
 	mod = importlib.import_module("cars." + style)
 	cb = mod.build()
 	body, glass, markers = cb.finish()
-	extra = getattr(cb, "extra_objects", [])
+	extra = getattr(cb, "extra_objects", []) + cb.panel_objs
 	wheel = wheels.build_wheel(style, cb.wheel)
 	return cb, body, glass, markers, extra, wheel
 
@@ -88,6 +93,7 @@ def main():
 	ap.add_argument("--samples", type=int, default=40)
 	ap.add_argument("--no-export", action="store_true")
 	ap.add_argument("--debug-normals", action="store_true")
+	ap.add_argument("--res", default="640x400")
 	argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else sys.argv[1:]
 	args = ap.parse_args(argv)
 	styles = [s for s in args.only.split(",") if s] or STYLES
@@ -115,10 +121,12 @@ def main():
 		stats[style] = {"body_tris": tris, "wheel_tris": wtris}
 		if args.preview:
 			core.set_paint_colour(PREVIEW_COLOURS[style])
+			for mat_name, rgb in PREVIEW_DECALS.get(style, {}).items():
+				core.set_paint_colour(rgb, mat_name)
 			copies = place_preview_wheels(style, wheel, cb.wheel)
 			for o in wheel:
 				o.hide_render = True
-			preview.setup_scene(GROUND[style], samples=args.samples)
+			preview.setup_scene(GROUND[style], samples=args.samples, res=tuple(int(v) for v in args.res.split("x")))
 			if args.debug_normals:
 				preview.debug_backfaces()
 			scale, dy = PREVIEW_FRAMING.get(style, (1.0, 0.0))

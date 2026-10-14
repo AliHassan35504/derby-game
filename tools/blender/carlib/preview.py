@@ -58,7 +58,7 @@ def setup_scene(ground_y, samples=40, res=(640, 400)):
 	e = cr.elements.new(1.0)
 	e.color = (0.18, 0.35, 0.75, 1)
 	nt.links.new(ramp.outputs["Color"], bg.inputs["Color"])
-	bg.inputs["Strength"].default_value = 1.0
+	bg.inputs["Strength"].default_value = 0.55
 	nt.links.new(bg.outputs[0], out.inputs["Surface"])
 
 	# Ground: a large asphalt-ish plane plus a faint grid of paint lines.
@@ -73,11 +73,36 @@ def setup_scene(ground_y, samples=40, res=(640, 400)):
 	core.bake_to_blender([ground])
 
 	sun_data = bpy.data.lights.new("Sun", "SUN")
-	sun_data.energy = 3.2
+	sun_data.energy = 4.0
 	sun_data.angle = math.radians(3.0)
 	sun = bpy.data.objects.new("Sun", sun_data)
 	sc.collection.objects.link(sun)
 	sun.rotation_euler = Vector((0.0, 0.0, 1.0)).rotation_difference(Vector((0.55, -0.45, 0.7)).normalized()).to_euler()
+
+	# Studio softboxes: only seen in reflections, they draw long highlights
+	# over the bonnet, roof and flanks so the surfacing reads.
+	for i, (pos, size, power) in enumerate((((0.0, ground_y + 7.0, 0.0), (5.0, 9.0), 6.0), ((7.0, ground_y + 2.2, 0.0), (1.2, 9.0), 4.0),
+			((-7.0, ground_y + 2.2, 0.0), (1.2, 9.0), 3.0))):
+		mbx = core.MeshBuilder()
+		hx, hz = size[0] * 0.5, size[1] * 0.5
+		c = Vector(pos)
+		if i == 0:
+			q = [c + Vector((-hx, 0, -hz)), c + Vector((hx, 0, -hz)), c + Vector((hx, 0, hz)), c + Vector((-hx, 0, hz))]
+		else:
+			q = [c + Vector((0, -hx, -hz)), c + Vector((0, hx, -hz)), c + Vector((0, hx, hz)), c + Vector((0, -hx, hz))]
+		mbx.f(tuple(mbx.v(p) for p in q), "Softbox%d" % i, False)
+		box = mbx.build("Softbox%d" % i)
+		bm_ = core.material("Softbox%d" % i)
+		nt_ = bm_.node_tree
+		nt_.nodes.clear()
+		em = nt_.nodes.new("ShaderNodeEmission")
+		em.inputs["Strength"].default_value = power
+		o_ = nt_.nodes.new("ShaderNodeOutputMaterial")
+		nt_.links.new(em.outputs[0], o_.inputs["Surface"])
+		box.visible_camera = False
+		box.visible_shadow = False
+		box.visible_diffuse = False
+		core.bake_to_blender([box])
 
 	area_data = bpy.data.lights.new("Soft", "AREA")
 	area_data.energy = 900.0
@@ -120,6 +145,9 @@ STANDARD_VIEWS = {
 	"front": ((0.0, 0.4, 9.0), (0.0, -0.2, 0.0), 50.0),
 	"rear": ((0.0, 0.6, -9.0), (0.0, -0.2, 0.0), 50.0),
 	"interior": ((1.8, 0.6, 0.6), (0.0, 0.0, -0.1), 28.0),
+	"fclose": ((1.9, 0.25, 4.4), (0.35, -0.35, 1.9), 50.0),
+	"rclose": ((-1.9, 0.35, -4.4), (-0.35, -0.3, -1.9), 50.0),
+	"wheel": ((2.4, -0.4, 2.2), (0.85, -0.65, 1.45), 55.0),
 }
 
 
