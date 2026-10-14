@@ -117,8 +117,7 @@ func show_menu() -> void:
 	map.apply_quality(GameSettings.quality)
 	player = null
 	camera.target = null
-	camera.orbit_center = Vector3(0, 30, 0)
-	camera.orbiting = true
+	camera.start_orbit(Vector3(0, 30, 0))
 	Sfx.play_music("menu")
 	menu.open()
 
@@ -198,8 +197,7 @@ func start_round() -> void:
 				child.rivals = cars
 
 	camera.target = player
-	camera.orbit_center = Vector3(0, 30, 0)
-	camera.orbiting = true
+	camera.start_orbit(Vector3(0, 30, 0))
 	hud.set_map(map.map_name)
 	var stage := ""
 	if mode == Mode.CHAMPIONSHIP:
@@ -433,7 +431,7 @@ func _end_round(winner: DerbyCar) -> void:
 	for car in cars:
 		car.controls_enabled = false
 	if winner:
-		camera.target = winner
+		camera.showcase(winner)
 	hud.set_spectating("")
 	Sfx.round_over(winner == player and not autotest)
 

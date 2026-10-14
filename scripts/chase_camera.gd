@@ -37,7 +37,7 @@ var _trauma := 0.0
 var _orbit_angle := 0.0
 var _heading := 0.0
 var _idle := 10.0
-var _ray_hit := 0.0
+var _showcase := false
 
 
 func add_trauma(amount: float) -> void:
@@ -79,11 +79,17 @@ func _process(delta: float) -> void:
 	# Real-time delta keeps the camera smooth during slow motion.
 	var real_delta := delta / maxf(Engine.time_scale, 0.01)
 	if orbiting:
-		_orbit_angle += real_delta * 0.12
+		_orbit_angle += real_delta * (0.35 if _showcase else 0.12)
+		if _showcase and is_instance_valid(target):
+			orbit_center = target.global_position + Vector3.UP * 0.8
 		var offset := Vector3(cos(_orbit_angle), 0, sin(_orbit_angle)) * orbit_radius
-		global_position = orbit_center + offset + Vector3.UP * orbit_height
+		var orbit_pos := orbit_center + offset + Vector3.UP * orbit_height
+		if _showcase:
+			global_position = global_position.lerp(orbit_pos, clampf(real_delta * 2.5, 0.0, 1.0))
+		else:
+			global_position = orbit_pos
 		look_at(orbit_center, Vector3.UP)
-		fov = base_fov
+		fov = lerpf(fov, base_fov, clampf(real_delta * 3.0, 0.0, 1.0))
 		return
 	if target == null or not is_instance_valid(target):
 		return
@@ -185,10 +191,33 @@ func _shake(real_delta: float) -> void:
 		v_offset = 0.0
 
 
+## Slowly circles a point high over the map (menu and Next Derby screen).
+func start_orbit(center: Vector3) -> void:
+	orbit_center = center
+	orbit_radius = 90.0
+	orbit_height = 45.0
+	_showcase = false
+	orbiting = true
+
+
+## Slowly circles a car, starting from where the camera is now (the winner
+## at the end of a round).
+func showcase(car: DerbyCar) -> void:
+	target = car
+	var from := global_position - car.global_position
+	_orbit_angle = atan2(from.z, from.x)
+	orbit_radius = 10.0 + float(car.stats["size"].z)
+	orbit_height = 3.5
+	orbit_center = car.global_position
+	_showcase = true
+	orbiting = true
+
+
 func snap_to_target() -> void:
 	if target == null:
 		return
 	orbiting = false
+	_showcase = false
 	reset_look()
 	var forward := target.get_forward()
 	_heading = atan2(forward.x, forward.z)
